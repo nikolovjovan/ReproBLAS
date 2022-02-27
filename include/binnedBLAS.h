@@ -32,7 +32,10 @@
 #ifndef BINNEDBLAS_H_
 #define BINNEDBLAS_H_
 #include "binned.h"
-#include "reproBLAS.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 float binnedBLAS_samax(const int N, const float *X, const int incX);
 double binnedBLAS_damax(const int N, const double *X, const int incX);
@@ -131,5 +134,9 @@ void binnedBLAS_cbcgemm(const int fold, const char Order,
              const void *alpha, const void *A, const int lda,
              const void *B, const int ldb,
              float_complex_binned *C, const int ldc);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -1,6 +1,16 @@
-build/*
-tests/common/test_data
-doc/*
+# Visual Studio Code
+.vscode/
+
+# Build
+build/
+
+# Cache
+__pycache__/
+/Default/
 *.DS_Store
 *.pyc
+
+# Generated
+tests/common/test_data
+doc/*
 *.log

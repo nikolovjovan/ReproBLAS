@@ -216,6 +216,10 @@ typedef float float_complex_binned;
  */
 #define binned_SMEXPANSION (1.0*(1 << (FLT_MANT_DIG - SBWIDTH + 1)))
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 size_t binned_dbsize(const int fold);
 size_t binned_zbsize(const int fold);
 size_t binned_sbsbze(const int fold);
@@ -376,4 +380,9 @@ float binned_sbsbaddsq(const int fold, const float scaleX, const float_binned *X
 
 double binned_ufp(const double X);
 float binned_ufpf(const float X);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif
