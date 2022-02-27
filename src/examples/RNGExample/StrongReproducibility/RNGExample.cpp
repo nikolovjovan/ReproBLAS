@@ -500,7 +500,7 @@ void *kernel_sum_reproducible(void *data)
         pthread_barrier_wait(&barrier);
 
         int end = id < thread_count - 1 ? start_indices[id + 1] : element_count;
-        partial_sums[id] = reproBLAS_ssum(end - start_indices[id] + 1, (elements->data() + start_indices[id]), 1);
+        partial_sums[id] = reproBLAS_ssum(end - start_indices[id], (elements->data() + start_indices[id]), 1);
 
         // Wait on barrier to synchronize all threads to start parallel reduction
         pthread_barrier_wait(&barrier);
@@ -570,7 +570,6 @@ void run_parallel_reproducible()
     cpu_set_t cpus;
     for (int i = 0; i < thread_count; ++i) {
         thread_ids[i] = i;       // Generate thread ids for easy work sharing
-        (*reduction_map)[i] = i; // Generate initial reduction map for each thread id (same as thread id)
         CPU_ZERO(&cpus);
         CPU_SET(i % processor_count, &cpus);
         pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
