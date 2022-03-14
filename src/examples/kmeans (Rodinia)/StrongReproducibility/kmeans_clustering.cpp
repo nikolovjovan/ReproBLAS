@@ -150,7 +150,7 @@ float **kmeans_clustering_seq(bool reproducible,
         for (i = 0; i < nclusters; ++i)
             for (j = 0; j < nfeatures; ++j) {
                 new_centers_binned[i][j] = binned_sballoc(SIDEFAULTFOLD);
-                binned_sbsconv(SIDEFAULTFOLD, 0.0f, new_centers_binned[i][j]); // possibly not necessary
+                binned_sbsetzero(SIDEFAULTFOLD, new_centers_binned[i][j]);
             }
     } else {
         new_centers = (float **) malloc(nclusters * sizeof(float *));
@@ -174,12 +174,11 @@ float **kmeans_clustering_seq(bool reproducible,
 
             /* update new cluster centers : sum of objects located within */
             new_centers_len[index]++;
-            if (reproducible) {
-                binnedBLAS_sbssum(SIDEFAULTFOLD, nfeatures, feature[i], 1, new_centers_binned[index][j]);
-            } else {
-                for (j = 0; j < nfeatures; j++)
+            for (j = 0; j < nfeatures; j++)
+                if (reproducible)
+                    binned_sbsadd(SIDEFAULTFOLD, feature[i][j], new_centers_binned[index][j]);
+                else
                     new_centers[index][j] += feature[i][j];
-            }
         }
 
         /* replace old cluster centers with new_centers */
@@ -188,7 +187,7 @@ float **kmeans_clustering_seq(bool reproducible,
                 if (reproducible) {
                     if (new_centers_len[i] > 0)
                         clusters[i][j] = binned_ssbconv(SIDEFAULTFOLD, new_centers_binned[i][j]) / new_centers_len[i];
-                    binned_sbsconv(SIDEFAULTFOLD, 0.0f, new_centers_binned[i][j]); // maybe there is an other way to set the value of a binned number
+                        binned_sbsetzero(SIDEFAULTFOLD, new_centers_binned[i][j]); /* set back to 0 */
                 } else {
                     if (new_centers_len[i] > 0)
                         clusters[i][j] = new_centers[i][j] / new_centers_len[i];
@@ -259,7 +258,7 @@ float **kmeans_clustering_omp(bool reproducible,
         for (i = 0; i < nclusters; ++i)
             for (j = 0; j < nfeatures; ++j) {
                 new_centers_binned[i][j] = binned_sballoc(SIDEFAULTFOLD);
-                binned_sbsconv(SIDEFAULTFOLD, 0.0f, new_centers_binned[i][j]); // possibly not necessary
+                binned_sbsetzero(SIDEFAULTFOLD, new_centers_binned[i][j]);
             }
     } else {
         new_centers = (float **) malloc(nclusters * sizeof(float *));
@@ -284,7 +283,7 @@ float **kmeans_clustering_omp(bool reproducible,
                 partial_new_centers_binned[i][j] = (float_binned **) malloc(nfeatures * sizeof(float_binned *));
                 for (k = 0; k < nfeatures; ++k) {
                     partial_new_centers_binned[i][j][k] = binned_sballoc(SIDEFAULTFOLD);
-                    binned_sbsconv(SIDEFAULTFOLD, 0.0f, partial_new_centers_binned[i][j][k]); // possibly not necessary
+                    binned_sbsetzero(SIDEFAULTFOLD, partial_new_centers_binned[i][j][k]);
                 }
             }
     } else {
@@ -324,12 +323,11 @@ float **kmeans_clustering_omp(bool reproducible,
 
             /* update new cluster centers : sum of objects located within */
             partial_new_centers_len[tid][index]++;
-            if (reproducible) {
-                binnedBLAS_sbssum(SIDEFAULTFOLD, nfeatures, feature[i], 1, partial_new_centers_binned[tid][index][j]);
-            } else {
-                for (j = 0; j < nfeatures; j++)
+            for (j = 0; j < nfeatures; j++)
+                if (reproducible)
+                    binned_sbsadd(SIDEFAULTFOLD, feature[i][j], partial_new_centers_binned[tid][index][j]);
+                else
                     partial_new_centers[tid][index][j] += feature[i][j];
-            }
         }
 } /* end of #pragma omp parallel */
 
@@ -341,7 +339,7 @@ float **kmeans_clustering_omp(bool reproducible,
                 if (reproducible)
                     for (k=0; k<nfeatures; k++) {
                         binned_sbsbadd(SIDEFAULTFOLD, partial_new_centers_binned[j][i][k], new_centers_binned[i][k]);
-                        binned_sbsconv(SIDEFAULTFOLD, 0.0f, partial_new_centers_binned[j][i][k]); // possibly not necessary
+                        binned_sbsetzero(SIDEFAULTFOLD, partial_new_centers_binned[j][i][k]);
                     }
                 else
                     for (k=0; k<nfeatures; k++) {
