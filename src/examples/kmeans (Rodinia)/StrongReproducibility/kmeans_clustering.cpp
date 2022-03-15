@@ -69,7 +69,6 @@
 
 #include "../../../../config.h"
 #include <binned.h>
-#include <binnedBLAS.h>
 
 #define RANDOM_MAX 2147483647
 

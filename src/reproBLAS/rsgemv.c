@@ -47,9 +47,9 @@ void reproBLAS_rsgemv(const int fold, const char Order,
   switch(TransA){
     case 'n':
     case 'N':
-      YI = (float_binned*)malloc(M * binned_sbsbze(fold));
+      YI = (float_binned*)malloc(M * binned_sbsize(fold));
       if(beta == 0.0){
-        memset(YI, 0, M * binned_sbsbze(fold));
+        memset(YI, 0, M * binned_sbsize(fold));
       }else if(beta == 1.0){
         for(i = 0; i < M; i++){
           binned_sbsconv(fold, Y[i * incY], YI + i * binned_sbnum(fold));
@@ -65,9 +65,9 @@ void reproBLAS_rsgemv(const int fold, const char Order,
       }
       break;
     default:
-      YI = (float_binned*)malloc(N * binned_sbsbze(fold));
+      YI = (float_binned*)malloc(N * binned_sbsize(fold));
       if(beta == 0.0){
-        memset(YI, 0, N * binned_sbsbze(fold));
+        memset(YI, 0, N * binned_sbsize(fold));
       }else if(beta == 1.0){
         for(i = 0; i < N; i++){
           binned_sbsconv(fold, Y[i * incY], YI + i * binned_sbnum(fold));

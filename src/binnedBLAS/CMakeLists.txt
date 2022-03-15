@@ -12,11 +12,11 @@ set (BINNEDBLAS_FILES "${BINNEDBLAS_C_SOURCE};${BINNEDBLAS_C_HEADERS};${REPROBLA
 
 # Add as an object library (not linked but used elsewhere)
 #
-add_library (binnedBLAS STATIC)
+add_library (binnedBLAS OBJECT ${BINNEDBLAS_FILES})
 
-# Add sources.
+# Link cmake objects into library.
 #
-target_sources (binnedBLAS PUBLIC ${BINNEDBLAS_FILES})
+target_link_libraries (binnedBLAS PUBLIC $<TARGET_OBJECTS:binned>)
 
 # Add headers install target.
 #

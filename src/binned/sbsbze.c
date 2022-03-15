@@ -10,6 +10,6 @@
  * @author Peter Ahrens
  * @date   27 Apr 2015
  */
-size_t binned_sbsbze(const int fold){
+size_t binned_sbsize(const int fold){
   return 2*fold*sizeof(float);
 }

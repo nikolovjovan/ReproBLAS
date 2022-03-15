@@ -15,7 +15,9 @@
 #include <sys/sysinfo.h>
 
 #include "UDTypes.h"
-#include "LongAccumulator.h"
+
+#include "../../../../config.h"
+#include <binned.h>
 
 #define max(x, y) ((x < y) ? y : x)
 #define min(x, y) ((x > y) ? y : x)
@@ -162,15 +164,19 @@ void gridding_seq(unsigned int n, parameters params, ReconstructionSample *sampl
     float beta = PI * sqrt(4 * params.kernelWidth * params.kernelWidth / (params.oversample * params.oversample) * (params.oversample - .5) * (params.oversample - .5) - .8);
 
     /* output buffers used for reproducible implementation */
-
-    LongAccumulator *gridDataRealAcc, *gridDataImagAcc;
-
+    float_binned **gridDataBinnedReal, **gridDataBinnedImag;
     uint32_t gridNumElems = size_x * size_y * size_z;
 
     if (reproducible) {
         /* initialize output buffers */
-        gridDataRealAcc = new LongAccumulator[gridNumElems]();
-        gridDataImagAcc = new LongAccumulator[gridNumElems]();
+        gridDataBinnedReal = (float_binned **) malloc(gridNumElems * sizeof(float_binned *));
+        gridDataBinnedImag = (float_binned **) malloc(gridNumElems * sizeof(float_binned *));
+        for (int i = 0; i < gridNumElems; ++i) {
+            gridDataBinnedReal[i] = binned_sballoc(SIDEFAULTFOLD);
+            binned_sbsetzero(SIDEFAULTFOLD, gridDataBinnedReal[i]);
+            gridDataBinnedImag[i] = binned_sballoc(SIDEFAULTFOLD);
+            binned_sbsetzero(SIDEFAULTFOLD, gridDataBinnedImag[i]);
+        }
     }
 
     int i;
@@ -239,8 +245,8 @@ void gridding_seq(unsigned int n, parameters params, ReconstructionSample *sampl
 
                                     /* grid data */
                                     if (reproducible) {
-                                        gridDataRealAcc[idx] += w * pt.real;
-                                        gridDataImagAcc[idx] += w * pt.imag;
+                                        binned_sbsadd(SIDEFAULTFOLD, w * pt.real, gridDataBinnedReal[idx]);
+                                        binned_sbsadd(SIDEFAULTFOLD, w * pt.imag, gridDataBinnedImag[idx]);
                                     } else {
                                         gridData[idx].real += (w * pt.real);
                                         gridData[idx].imag += (w * pt.imag);
@@ -262,13 +268,17 @@ void gridding_seq(unsigned int n, parameters params, ReconstructionSample *sampl
     if (reproducible) {
         /* convert temp data to output data */
         for (i = 0; i < gridNumElems; ++i) {
-            gridData[i].real = gridDataRealAcc[i]();
-            gridData[i].imag = gridDataImagAcc[i]();
+            gridData[i].real = binned_ssbconv(SIDEFAULTFOLD, gridDataBinnedReal[i]);
+            gridData[i].imag = binned_ssbconv(SIDEFAULTFOLD, gridDataBinnedImag[i]);
+
+            /* free allocated memory */
+            free(gridDataBinnedReal[i]);
+            free(gridDataBinnedImag[i]);
         }
 
         /* free allocated memory */
-        delete[] gridDataRealAcc;
-        delete[] gridDataImagAcc;
+        free(gridDataBinnedReal);
+        free(gridDataBinnedImag);
     }
 }
 
@@ -343,17 +353,23 @@ void gridding_omp_mem(unsigned int n, parameters params, ReconstructionSample *s
     cmplx **tGridData;
     float **tSampleDensity;
 
-    LongAccumulator **tGridDataRealAcc;
-    LongAccumulator **tGridDataImagAcc;
+    float_binned ***tGridDataBinnedReal, ***tGridDataBinnedImag;
 
     if (reproducible) {
-        tGridDataRealAcc = new LongAccumulator*[numThreads]();
-        tGridDataImagAcc = new LongAccumulator*[numThreads]();
+        /* initialize output buffers */
+        tGridDataBinnedReal = (float_binned ***) malloc(numThreads * sizeof(float_binned **));
+        tGridDataBinnedImag = (float_binned ***) malloc(numThreads * sizeof(float_binned **));
 
         /* all threads require output buffer allocation */
         for (i = 0; i < numThreads; ++i) {
-            tGridDataRealAcc[i] = new LongAccumulator[gridNumElems]();
-            tGridDataImagAcc[i] = new LongAccumulator[gridNumElems]();
+            tGridDataBinnedReal[i] = (float_binned **) malloc(gridNumElems * sizeof(float_binned *));
+            tGridDataBinnedImag[i] = (float_binned **) malloc(gridNumElems * sizeof(float_binned *));
+            for (int j = 0; j < gridNumElems; ++j) {
+                tGridDataBinnedReal[i][j] = binned_sballoc(SIDEFAULTFOLD);
+                binned_sbsetzero(SIDEFAULTFOLD, tGridDataBinnedReal[i][j]);
+                tGridDataBinnedImag[i][j] = binned_sballoc(SIDEFAULTFOLD);
+                binned_sbsetzero(SIDEFAULTFOLD, tGridDataBinnedImag[i][j]);
+            }
         }
     } else {
         tGridData = (cmplx **) calloc(numThreads, sizeof(cmplx *));
@@ -381,7 +397,7 @@ void gridding_omp_mem(unsigned int n, parameters params, ReconstructionSample *s
 
 #pragma omp parallel default(none) \
         private(i, tid, pt, NxL, NxH, NyL, NyH, NzL, NzH, nx, ny, nz, w, idx, idx0, idxZ, idxY, Dx2, Dy2, Dz2, dx2, dy2, dz2, dy2dz2, v, start, end) \
-        shared(n, params, sample, LUT, sizeLUT, size_x, size_y, size_z, cutoff, cutoff2, _1overCutoff2, beta, tGridData, tSampleDensity, tGridDataRealAcc, tGridDataImagAcc, chunkSize, numThreads, reproducible)
+        shared(n, params, sample, LUT, sizeLUT, size_x, size_y, size_z, cutoff, cutoff2, _1overCutoff2, beta, tGridData, tSampleDensity, tGridDataBinnedReal, tGridDataBinnedImag, chunkSize, numThreads, reproducible)
 {
     tid = omp_get_thread_num();
     start = tid * chunkSize;
@@ -448,8 +464,8 @@ void gridding_omp_mem(unsigned int n, parameters params, ReconstructionSample *s
 
                                     /* grid data */
                                     if (reproducible) {
-                                        tGridDataRealAcc[tid][idx] += w * pt.real;
-                                        tGridDataImagAcc[tid][idx] += w * pt.imag;
+                                        binned_sbsadd(SIDEFAULTFOLD, w * pt.real, tGridDataBinnedReal[tid][idx]);
+                                        binned_sbsadd(SIDEFAULTFOLD, w * pt.imag, tGridDataBinnedImag[tid][idx]);
                                     } else {
                                         tGridData[tid][idx].real += (w * pt.real);
                                         tGridData[tid][idx].imag += (w * pt.imag);
@@ -475,7 +491,7 @@ void gridding_omp_mem(unsigned int n, parameters params, ReconstructionSample *s
     int j;
 #pragma omp parallel default(none) \
             private(i, j, tid, start, end) \
-            shared(gridNumElems, numThreads, gridData, tGridData, sampleDensity, tSampleDensity, chunkSize, reproducible, tGridDataRealAcc, tGridDataImagAcc)
+            shared(gridNumElems, numThreads, gridData, tGridData, sampleDensity, tSampleDensity, chunkSize, reproducible, tGridDataBinnedReal, tGridDataBinnedImag)
 {
     tid = omp_get_thread_num();
     start = tid * chunkSize;
@@ -484,8 +500,12 @@ void gridding_omp_mem(unsigned int n, parameters params, ReconstructionSample *s
     for (i = start; i < end; ++i) {
         for (j = 1; j < numThreads; ++j) {
             if (reproducible) {
-                tGridDataRealAcc[0][i] += tGridDataRealAcc[j][i];
-                tGridDataImagAcc[0][i] += tGridDataImagAcc[j][i];
+                binned_sbsbadd(SIDEFAULTFOLD, tGridDataBinnedReal[j][i], tGridDataBinnedReal[0][i]);
+                binned_sbsbadd(SIDEFAULTFOLD, tGridDataBinnedImag[j][i], tGridDataBinnedImag[0][i]);
+
+                /* free allocated memory */
+                free(tGridDataBinnedReal[j][i]);
+                free(tGridDataBinnedImag[j][i]);
             } else {
                 gridData[i].real += tGridData[j][i].real;
                 gridData[i].imag += tGridData[j][i].imag;
@@ -493,8 +513,12 @@ void gridding_omp_mem(unsigned int n, parameters params, ReconstructionSample *s
             sampleDensity[i] += tSampleDensity[j][i];
         }
         if (reproducible) {
-            gridData[i].real = tGridDataRealAcc[0][i]();
-            gridData[i].imag = tGridDataImagAcc[0][i]();
+            gridData[i].real = binned_ssbconv(SIDEFAULTFOLD, tGridDataBinnedReal[0][i]);
+            gridData[i].imag = binned_ssbconv(SIDEFAULTFOLD, tGridDataBinnedImag[0][i]);
+
+            /* free allocated memory */
+            free(tGridDataBinnedReal[0][i]);
+            free(tGridDataBinnedImag[0][i]);
         }
     }
 }
@@ -502,11 +526,11 @@ void gridding_omp_mem(unsigned int n, parameters params, ReconstructionSample *s
     /* free allocated memory */
     if (reproducible) {
         for (i = 0; i < numThreads; ++i) {
-            delete[] tGridDataRealAcc[i];
-            delete[] tGridDataImagAcc[i];
+            free(tGridDataBinnedReal[i]);
+            free(tGridDataBinnedImag[i]);
         }
-        delete[] tGridDataRealAcc;
-        delete[] tGridDataImagAcc;
+        free(tGridDataBinnedReal);
+        free(tGridDataBinnedImag);
     } else {
         for (i = 1; i < numThreads; ++i) {
             free(tGridData[i]);
@@ -584,7 +608,7 @@ void gridding_omp_locks(unsigned int n, parameters params, ReconstructionSample 
     float tempGridDataReal;
     float tempGridDataImag;
 
-    LongAccumulator *gridDataRealAcc, *gridDataImagAcc;
+    float_binned **gridDataBinnedReal, **gridDataBinnedImag;
 
     uint32_t gridNumElems = size_x * size_y * size_z;
     uint32_t lockNum = MAX_LOCK_COUNT > gridNumElems ? gridNumElems : MAX_LOCK_COUNT;
@@ -601,15 +625,21 @@ void gridding_omp_locks(unsigned int n, parameters params, ReconstructionSample 
 
     if (reproducible) {
         /* initialize output buffers */
-        gridDataRealAcc = new LongAccumulator[gridNumElems]();
-        gridDataImagAcc = new LongAccumulator[gridNumElems]();
+        gridDataBinnedReal = (float_binned **) malloc(gridNumElems * sizeof(float_binned *));
+        gridDataBinnedImag = (float_binned **) malloc(gridNumElems * sizeof(float_binned *));
+        for (int i = 0; i < gridNumElems; ++i) {
+            gridDataBinnedReal[i] = binned_sballoc(SIDEFAULTFOLD);
+            binned_sbsetzero(SIDEFAULTFOLD, gridDataBinnedReal[i]);
+            gridDataBinnedImag[i] = binned_sballoc(SIDEFAULTFOLD);
+            binned_sbsetzero(SIDEFAULTFOLD, gridDataBinnedImag[i]);
+        }
     }
 
     double tstart = omp_get_wtime();
 
 #pragma omp parallel for default(none) \
             private(i, pt, NxL, NxH, NyL, NyH, NzL, NzH, nx, ny, nz, w, tempGridDataReal, tempGridDataImag, idx, idx0, idxZ, idxY, Dx2, Dy2, Dz2, dx2, dy2, dz2, dy2dz2, v) \
-            shared(n, params, sample, LUT, sizeLUT, gridData, sampleDensity, size_x, size_y, size_z, cutoff, cutoff2, _1overCutoff2, beta, lockNum, locks, reproducible, gridDataRealAcc, gridDataImagAcc)
+            shared(n, params, sample, LUT, sizeLUT, gridData, sampleDensity, size_x, size_y, size_z, cutoff, cutoff2, _1overCutoff2, beta, lockNum, locks, reproducible, gridDataBinnedReal, gridDataBinnedImag)
     for (i = 0; i < n; i++) {
         pt = sample[i];
 
@@ -678,8 +708,8 @@ void gridding_omp_locks(unsigned int n, parameters params, ReconstructionSample 
 
                                     /* grid data */
                                     if (reproducible) {
-                                        gridDataRealAcc[idx] += tempGridDataReal;
-                                        gridDataImagAcc[idx] += tempGridDataImag;
+                                        binned_sbsadd(SIDEFAULTFOLD, tempGridDataReal, gridDataBinnedReal[idx]);
+                                        binned_sbsadd(SIDEFAULTFOLD, tempGridDataImag, gridDataBinnedImag[idx]);
                                     } else {
                                         gridData[idx].real += tempGridDataReal;
                                         gridData[idx].imag += tempGridDataImag;
@@ -704,13 +734,17 @@ void gridding_omp_locks(unsigned int n, parameters params, ReconstructionSample 
     if (reproducible) {
         /* convert temp data to output data */
         for (i = 0; i < gridNumElems; ++i) {
-            gridData[i].real = gridDataRealAcc[i]();
-            gridData[i].imag = gridDataImagAcc[i]();
+            gridData[i].real = binned_ssbconv(SIDEFAULTFOLD, gridDataBinnedReal[i]);
+            gridData[i].imag = binned_ssbconv(SIDEFAULTFOLD, gridDataBinnedImag[i]);
+
+            /* free allocated memory */
+            free(gridDataBinnedReal[i]);
+            free(gridDataBinnedImag[i]);
         }
 
         /* free allocated memory */
-        delete[] gridDataRealAcc;
-        delete[] gridDataImagAcc;
+        free(gridDataBinnedReal);
+        free(gridDataBinnedImag);
     }
 
     /* free allocated memory */
@@ -733,7 +767,7 @@ void gridding_omp(unsigned int n, parameters params, ReconstructionSample *sampl
     uint64_t totalMemSize = memInfo.totalram;
     uint64_t requiredMemSize;
     if (reproducible) {
-        requiredMemSize = numThreads * gridNumElems * sizeof(LongAccumulator) * 2 + gridNumElems * (sizeof(cmplx) + sizeof(float));
+        requiredMemSize = numThreads * gridNumElems * binned_sbsize(SIDEFAULTFOLD) * 2 + gridNumElems * (sizeof(cmplx) + sizeof(float));
     } else {
         requiredMemSize = numThreads * gridNumElems * (sizeof(cmplx) + sizeof(float));
     }

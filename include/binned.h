@@ -222,7 +222,7 @@ extern "C" {
 
 size_t binned_dbsize(const int fold);
 size_t binned_zbsize(const int fold);
-size_t binned_sbsbze(const int fold);
+size_t binned_sbsize(const int fold);
 size_t binned_cbsize(const int fold);
 
 double_binned *binned_dballoc(const int fold);

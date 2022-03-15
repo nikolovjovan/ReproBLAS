@@ -87,14 +87,14 @@ int file_test(int argc, char** argv, char *fname) {
     Iref = Ires;
 
     file_write_vector(ref_fname, 1, &ref, sizeof(ref));
-    file_write_vector(Iref_fname, 1, Iref, binned_sbsbze(SIDEFAULTFOLD));
+    file_write_vector(Iref_fname, 1, Iref, binned_sbsize(SIDEFAULTFOLD));
   } else {
     void *data;
     int unused0;
     file_read_vector(ref_fname, &unused0, &data, sizeof(ref));
     ref = *(float*)data;
     free(data);
-    file_read_vector(Iref_fname, &unused0, &data, binned_sbsbze(SIDEFAULTFOLD));
+    file_read_vector(Iref_fname, &unused0, &data, binned_sbsize(SIDEFAULTFOLD));
     free(Iref);
     Iref = data;
     if(ref != res){

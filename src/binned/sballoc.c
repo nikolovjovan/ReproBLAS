@@ -10,5 +10,5 @@
  * @date   27 Apr 2015
  */
 float_binned *binned_sballoc(const int fold){
-  return (float_binned*)malloc(binned_sbsbze(fold));
+  return (float_binned*)malloc(binned_sbsize(fold));
 }

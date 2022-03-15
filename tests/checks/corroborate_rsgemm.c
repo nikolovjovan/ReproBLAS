@@ -70,12 +70,12 @@ int corroborate_rsgemm(int fold, char Order, char TransA, char TransB, int M, in
       break;
   }
   res = malloc(CNM * sizeof(float));
-  Ires = malloc(CNM * binned_sbsbze(fold));
+  Ires = malloc(CNM * binned_sbsize(fold));
 
   num_blocks = 1;
   while (num_blocks < K && num_blocks <= max_num_blocks) {
     memcpy(res, C, CNM * sizeof(float));
-    memcpy(Ires, CI, CNM * binned_sbsbze(fold));
+    memcpy(Ires, CI, CNM * binned_sbsize(fold));
     if (num_blocks == 1){
       wrap_rsgemm(fold, Order, TransA, TransB, M, N, K, alpha, A, lda, B, ldb, beta, res, ldc);
     }else {
@@ -247,7 +247,7 @@ int matmat_fill_test(int argc, char** argv, char Order, char TransA, char TransB
       CNM = ldc * N;
       break;
   }
-  float_binned *CI = malloc(CNM * binned_sbsbze(fold._int.value));
+  float_binned *CI = malloc(CNM * binned_sbsize(fold._int.value));
 
   int *P;
 

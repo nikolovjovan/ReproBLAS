@@ -51,12 +51,12 @@ void reproBLAS_rsgemm(const int fold, const char Order, const char TransA, const
     return;
   }
 
-  CI = (float_binned*)malloc(M * N * binned_sbsbze(fold));
+  CI = (float_binned*)malloc(M * N * binned_sbsize(fold));
   switch(Order){
     case 'r':
     case 'R':
       if(beta == 0.0){
-        memset(CI, 0, M * N * binned_sbsbze(fold));
+        memset(CI, 0, M * N * binned_sbsize(fold));
       }else if(beta == 1.0){
         for(i = 0; i < M; i++){
           for(j = 0; j < N; j++){
@@ -79,7 +79,7 @@ void reproBLAS_rsgemm(const int fold, const char Order, const char TransA, const
       break;
     default:
       if(beta == 0.0){
-        memset(CI, 0, M * N * binned_sbsbze(fold));
+        memset(CI, 0, M * N * binned_sbsize(fold));
       }else if(beta == 1.0){
         for(j = 0; j < N; j++){
           for(i = 0; i < M; i++){

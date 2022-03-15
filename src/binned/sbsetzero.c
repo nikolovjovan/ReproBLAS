@@ -15,5 +15,5 @@
  * @date   27 Apr 2015
  */
 void binned_sbsetzero(const int fold, float_binned *X){
-  memset(X, 0, binned_sbsbze(fold));
+  memset(X, 0, binned_sbsize(fold));
 }

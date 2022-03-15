@@ -65,12 +65,12 @@ int corroborate_rsgemv(int fold, char Order, char TransA, int M, int N, float al
   }
 
   float *res = util_svec_alloc(opM, incY);
-  float_binned *Ires = malloc(opM * incY * binned_sbsbze(fold));
+  float_binned *Ires = malloc(opM * incY * binned_sbsize(fold));
 
   num_blocks = 1;
   while (num_blocks < opN && num_blocks <= max_num_blocks) {
     memcpy(res, Y, opM * incY * sizeof(float));
-    memcpy(Ires, YI, opM * incY * binned_sbsbze(fold));
+    memcpy(Ires, YI, opM * incY * binned_sbsize(fold));
     if (num_blocks == 1){
       wrap_rsgemv(fold, Order, TransA, M, N, alpha, A, lda, X, incX, beta, res, incY);
     }else {
@@ -182,7 +182,7 @@ int matvec_fill_test(int argc, char** argv, char Order, char TransA, int M, int 
   float *A  = util_smat_alloc(Order, M, N, lda);
   float *X  = util_svec_alloc(opN, incX);
   float *Y  = util_svec_alloc(opM, incY);
-  float_binned *YI = (float_binned*)malloc(opM * incY * binned_sbsbze(fold._int.value));
+  float_binned *YI = (float_binned*)malloc(opM * incY * binned_sbsize(fold._int.value));
 
   int *P;
 
@@ -190,7 +190,7 @@ int matvec_fill_test(int argc, char** argv, char Order, char TransA, int M, int 
   util_svec_fill(opN, X, incX, FillX, RealScaleX, ImagScaleX);
   util_svec_fill(opM, Y, incY, FillY, RealScaleY, ImagScaleY);
   if(RealBeta == 0.0){
-    memset(YI, 0, opM * binned_sbsbze(fold._int.value));
+    memset(YI, 0, opM * binned_sbsize(fold._int.value));
   }else{
     for(i = 0; i < opM; i++){
       binned_sbsconv(fold._int.value, Y[i * incY] * RealBeta, YI + i * incY * binned_sbnum(fold._int.value));

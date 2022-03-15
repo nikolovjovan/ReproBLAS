@@ -16,5 +16,5 @@
  * @date   27 Apr 2015
  */
 void binned_sbsbset(const int fold, const float_binned *X, float_binned *Y){
-  memcpy(Y, X, binned_sbsbze(fold));
+  memcpy(Y, X, binned_sbsize(fold));
 }

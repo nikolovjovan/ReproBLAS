@@ -12,15 +12,11 @@ set (REPROBLAS_FILES "${REPROBLAS_C_SOURCE};${REPROBLAS_C_HEADERS};${REPROBLAS_C
 
 # Add as an object library (not linked but used elsewhere)
 #
-add_library (reproBLAS STATIC)
-
-# Add sources.
-#
-target_sources (reproBLAS PUBLIC ${REPROBLAS_FILES})
+add_library (reproBLAS OBJECT ${REPROBLAS_FILES})
 
 # Link cmake objects into library.
 #
-target_link_libraries (reproBLAS PUBLIC binned binnedBLAS)
+target_link_libraries (reproBLAS PUBLIC $<TARGET_OBJECTS:binned> $<TARGET_OBJECTS:binnedBLAS>)
 
 # Set visibility.
 #

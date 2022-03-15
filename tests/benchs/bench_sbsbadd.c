@@ -82,7 +82,7 @@ int bench_vecvec_fill_test(int argc, char** argv, int N, int FillX, double RealS
   util_svec_fill(N * preN._int.value, preX, incX, FillX, RealScaleX, ImagScaleX);
 
   X = (float_binned*)util_svec_alloc(N * binned_sbnum(fold._int.value), 1);
-  memset(X, 0, N * binned_sbsbze(fold._int.value));
+  memset(X, 0, N * binned_sbsize(fold._int.value));
   for(i = 0; i < N; i++){
     binnedBLAS_sbssum(fold._int.value, preN._int.value, preX + i * preN._int.value * incX, incX, X + i * binned_sbnum(fold._int.value));
   }

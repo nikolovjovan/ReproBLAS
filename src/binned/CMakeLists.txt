@@ -12,11 +12,7 @@ set (BINNED_FILES "${BINNED_C_SOURCE};${BINNED_C_HEADERS};${REPROBLAS_C_CONFIG_H
 
 # Add as an object library (not linked but used elsewhere)
 #
-add_library (binned STATIC)
-
-# Add sources.
-#
-target_sources (binned PUBLIC ${BINNED_FILES})
+add_library (binned OBJECT ${BINNED_FILES})
 
 # Add headers install target.
 #
