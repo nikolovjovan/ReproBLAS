@@ -1,6 +1,6 @@
 # Set target name.
 #
-set (EXAMPLE_TARGET_NAME spmv_Base)
+set (EXAMPLE_TARGET_NAME ${EXAMPLE_TARGET_NAME_BASE}_Base)
 
 # Grab the .c and .cpp files.
 #
@@ -27,7 +27,7 @@ install (TARGETS ${EXAMPLE_TARGET_NAME} DESTINATION ${EXAMPLE_TARGET_DIR})
 # Add CMake tests to execute examples to verify default execution does not crash if option is specified.
 #
 if (TEST_EXAMPLES)
-    add_test (${EXAMPLE_TARGET_NAME} ${EXAMPLE_TARGET_DIR}/${EXAMPLE_TARGET_NAME} -i ${EXAMPLE_TARGET_DIR}/data/bcsstk32.mtx -o results/spmv_output.txt)
-    add_test (${EXAMPLE_TARGET_NAME} ${EXAMPLE_TARGET_DIR}/${EXAMPLE_TARGET_NAME} -i ${EXAMPLE_TARGET_DIR}/data/fidapm05.mtx -o results/spmv_output.txt)
-    add_test (${EXAMPLE_TARGET_NAME} ${EXAMPLE_TARGET_DIR}/${EXAMPLE_TARGET_NAME} -i ${EXAMPLE_TARGET_DIR}/data/jgl009.mtx -o results/spmv_output.txt)
+    add_test (NAME ${EXAMPLE_TARGET_NAME}_bcsstk32 COMMAND ${EXAMPLE_TARGET_DIR}/${EXAMPLE_TARGET_NAME} -i ${EXAMPLE_TARGET_DIR}/data/bcsstk32.mtx -o ${EXAMPLE_TARGET_DIR}/data/spmv_bcsstk32.out)
+    add_test (NAME ${EXAMPLE_TARGET_NAME}_fidapm05 COMMAND ${EXAMPLE_TARGET_DIR}/${EXAMPLE_TARGET_NAME} -i ${EXAMPLE_TARGET_DIR}/data/fidapm05.mtx -o ${EXAMPLE_TARGET_DIR}/data/spmv_fidapm05.out)
+    add_test (NAME ${EXAMPLE_TARGET_NAME}_jgl009 COMMAND ${EXAMPLE_TARGET_DIR}/${EXAMPLE_TARGET_NAME} -i ${EXAMPLE_TARGET_DIR}/data/jgl009.mtx -o ${EXAMPLE_TARGET_DIR}/data/spmv_jgl009.out)
 endif ()

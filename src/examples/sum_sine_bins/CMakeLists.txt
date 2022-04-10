@@ -2,13 +2,13 @@
 #
 set (EXTRA_LIBS ${EXTRA_LIBS} m)
 
-# Set install target directory.
-#
-set (EXAMPLE_TARGET_DIR ${PROJECT_BINARY_DIR}/examples/sum_sine_bins)
-
 # Set target name.
 #
 set (EXAMPLE_TARGET_NAME sum_sine_bins)
+
+# Set install target directory.
+#
+set (EXAMPLE_TARGET_DIR ${PROJECT_BINARY_DIR}/examples/${EXAMPLE_TARGET_NAME})
 
 # Grab the .c and .cpp files.
 #
@@ -35,5 +35,5 @@ install (TARGETS ${EXAMPLE_TARGET_NAME} DESTINATION ${EXAMPLE_TARGET_DIR})
 # Add CMake tests to execute examples to verify default execution does not crash if option is specified.
 #
 if (TEST_EXAMPLES)
-    add_test (${EXAMPLE_TARGET_NAME} ${EXAMPLE_TARGET_DIR}/${EXAMPLE_TARGET_NAME})
+    add_test (NAME ${EXAMPLE_TARGET_NAME} COMMAND ${EXAMPLE_TARGET_DIR}/${EXAMPLE_TARGET_NAME})
 endif ()
