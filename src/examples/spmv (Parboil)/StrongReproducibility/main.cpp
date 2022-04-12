@@ -22,8 +22,7 @@
 using namespace std;
 
 constexpr uint32_t DEFAULT_SEED = 1549813198;
-
-constexpr int REPETITION_COUNT = 10;
+constexpr uint32_t DEFAULT_NUMBER_OF_RUNS = 50;
 
 bool generate_vector (float *x_vector, int dim, uint32_t seed)
 {
@@ -44,7 +43,7 @@ bool generate_vector (float *x_vector, int dim, uint32_t seed)
 bool diff(int dim, float *h_Ax_vector_1, float *h_Ax_vector_2)
 {
     for (int i = 0; i < dim; i++)
-        if (h_Ax_vector_1[i] != h_Ax_vector_2[i]);
+        if (h_Ax_vector_1[i] != h_Ax_vector_2[i])
             return true;
     return false;
 }
@@ -55,6 +54,10 @@ void spmv_seq (bool reproducible, int dim, int *h_nzcnt, int *h_ptr, int *h_indi
     float sum = 0.0f;
     float_binned* sum_binned = binned_sballoc(SIDEFAULTFOLD);
 
+    // Consider creating a random map by creating an array 0..dim - 1 and randomly shuffling it
+    // for each execution. This should provide required randomness given the order of operations
+    // is sequential at the moment.
+    //
     for (int i = 0; i < dim; i++) {
         if (reproducible) {
             binned_sbsetzero(SIDEFAULTFOLD, sum_binned);
@@ -91,13 +94,15 @@ void spmv_seq (bool reproducible, int dim, int *h_nzcnt, int *h_ptr, int *h_indi
 void spmv_omp (bool reproducible, int dim, int *h_nzcnt, int *h_ptr, int *h_indices, float *h_data,
                float *h_x_vector, int *h_perm, float *h_Ax_vector)
 {
-// move float_binned here (creae )
-
 #pragma omp parallel
 {
     float sum = 0.0f;
     float_binned* sum_binned = binned_sballoc(SIDEFAULTFOLD);
 
+    // Consider creating a random map by creating an array 0..dim - 1 and randomly shuffling it
+    // for each execution. This should provide required randomness given the order of operations
+    // is sequential at the moment.
+    //
 #pragma omp for
     for (int i = 0; i < dim; i++) {
         if (reproducible) {
@@ -133,7 +138,7 @@ void spmv_omp (bool reproducible, int dim, int *h_nzcnt, int *h_ptr, int *h_indi
 }
 }
 
-void execute (bool parallel, bool reproducible, int dim, int *h_nzcnt, int *h_ptr, int *h_indices, float *h_data,
+void execute (uint32_t nruns, bool parallel, bool reproducible, int dim, int *h_nzcnt, int *h_ptr, int *h_indices, float *h_data,
               float *h_x_vector, int *h_perm, float *h_Ax_vector, double &time)
 {
     printf("Running %s (%sreproducible) implementation...\n", parallel ? "parallel" : "sequential", reproducible ? "" : "non-");
@@ -142,7 +147,7 @@ void execute (bool parallel, bool reproducible, int dim, int *h_nzcnt, int *h_pt
 
     float *tmp_h_Ax_vector = new float[dim];
 
-    for (int i = 0; i < REPETITION_COUNT; ++i) {
+    for (int i = 0; i < nruns; ++i) {
         if (i == 0)
             time = omp_get_wtime();
         if (parallel)
@@ -152,7 +157,7 @@ void execute (bool parallel, bool reproducible, int dim, int *h_nzcnt, int *h_pt
         if (i == 0) {
             time = omp_get_wtime() - time;
             memcpy (h_Ax_vector, tmp_h_Ax_vector, dim * sizeof (float));
-        } else if (diff(dim, h_x_vector, tmp_h_Ax_vector)) {
+        } else if (diff(dim, h_Ax_vector, tmp_h_Ax_vector)) {
             printf("%s (%sreproducible) implementation not reproducible after %d runs!\n",
                     parallel ? "Parallel" : "Sequential", reproducible ? "" : "non-", i);
             break;
@@ -225,6 +230,7 @@ int main (int argc, char** argv)
     h_x_vector = new float[dim];
 
     uint32_t seed = parameters->seed == 0 ? DEFAULT_SEED : parameters->seed;
+    uint32_t nruns = parameters->nruns == 0 ? DEFAULT_NUMBER_OF_RUNS : parameters->nruns;
 
     if (!generate_vector(h_x_vector, dim, seed)) {
         fprintf(stderr, "Failed to generate dense vector.\n");
@@ -235,10 +241,10 @@ int main (int argc, char** argv)
 
     double time_seq, time_omp, time_seq_rep, time_omp_rep;
 
-    execute (false, false, dim, h_nzcnt, h_ptr, h_indices, h_data, h_x_vector, h_perm, h_Ax_vector_seq, time_seq);
-    execute (false, true, dim, h_nzcnt, h_ptr, h_indices, h_data, h_x_vector, h_perm, h_Ax_vector_seq_rep, time_seq_rep);
-    execute (true, false, dim, h_nzcnt, h_ptr, h_indices, h_data, h_x_vector, h_perm, h_Ax_vector_omp, time_omp);
-    execute (true, true, dim, h_nzcnt, h_ptr, h_indices, h_data, h_x_vector, h_perm, h_Ax_vector_omp_rep, time_omp_rep);
+    execute (nruns, false, false, dim, h_nzcnt, h_ptr, h_indices, h_data, h_x_vector, h_perm, h_Ax_vector_seq, time_seq);
+    execute (nruns, false, true, dim, h_nzcnt, h_ptr, h_indices, h_data, h_x_vector, h_perm, h_Ax_vector_seq_rep, time_seq_rep);
+    execute (nruns, true, false, dim, h_nzcnt, h_ptr, h_indices, h_data, h_x_vector, h_perm, h_Ax_vector_omp, time_omp);
+    execute (nruns, true, true, dim, h_nzcnt, h_ptr, h_indices, h_data, h_x_vector, h_perm, h_Ax_vector_omp_rep, time_omp_rep);
 
     printf("Non-reproducible sequential and parallel results %smatch!\n",
            diff(dim, h_Ax_vector_seq, h_Ax_vector_omp) ? "do not " : "");

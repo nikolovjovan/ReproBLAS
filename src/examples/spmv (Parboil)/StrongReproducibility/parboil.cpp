@@ -183,6 +183,13 @@ pb_ReadParameters(int *_argc, char **argv)
 	    goto error;
 	  }
 	ret->seed = strtoul(consume_argument(&ap), NULL, 10);
+      case 'r':
+  if (is_end_of_arguments(&ap))
+	  {
+	    err_message = "Expecting number of runs after '-r'\n";
+	    goto error;
+	  }
+	ret->nruns = strtoul(consume_argument(&ap), NULL, 10);
 	break;
       case '-':			/* End of options */
 	goto end_of_options;

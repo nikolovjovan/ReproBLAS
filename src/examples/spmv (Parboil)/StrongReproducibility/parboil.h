@@ -25,6 +25,7 @@ struct pb_Parameters {
 				 * are owned. */
   uint32_t seed;  /* Random number generator seed. If 0,
          * default seed is used. */
+  uint32_t nruns; /* Number of runs */
 };
 
 /* Read command-line parameters.
