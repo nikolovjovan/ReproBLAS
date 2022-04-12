@@ -103,7 +103,7 @@ int main (int argc, char** argv)
 
     // Main execution
     //
-    for(int p = 0; p < 50; p++) {
+    for (int p = 0; p < 50; p++) {
     #pragma omp parallel for
         for (int i = 0; i < dim; i++) {
             int k;

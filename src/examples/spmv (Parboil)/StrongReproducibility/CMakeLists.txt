@@ -1,6 +1,6 @@
 # Set target name.
 #
-set (EXAMPLE_TARGET_NAME ${EXAMPLE_TARGET_NAME_BASE}_Base)
+set (EXAMPLE_TARGET_NAME ${EXAMPLE_TARGET_NAME_BASE}_StrongReproducibility)
 
 # Grab the .c and .cpp files.
 #
