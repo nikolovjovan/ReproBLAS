@@ -16,7 +16,6 @@ set (EXAMPLE_TARGET_DIR ${PROJECT_BINARY_DIR}/examples/${EXAMPLE_TARGET_NAME_BAS
 
 # Traverse example versions.
 #
-add_subdirectory (Base)
 add_subdirectory (StrongReproducibility)
 
 # Copy input data files during install.
