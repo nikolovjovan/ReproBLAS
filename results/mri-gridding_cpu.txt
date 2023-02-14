@@ -1,0 +1,48 @@
+unit: [ms]
+
+reproducible results only
+
+small/small.uks
+
+seq	19219.0055847168	18749.6566772461	19063.9381408691
+
+omp_locks
+
+1	19042.9077148438	19018.9514160156	19026.6914367676
+2	12772.2816467285	12718.5087203979	12715.0793075562
+4	7933.1045150757	7898.4832763672	7871.8156814575
+8	6775.0473022461	6689.2251968384	6685.6713294983
+16	6743.4840202332	6762.4211311340	6782.6399803162
+32	6710.2551460266	6710.8454704285	6701.7245292664
+64	6727.8909683228	6693.4142112732	6704.1168212891
+128	6723.9770889282	6695.9919929504	6698.7318992615
+
+omp_mem
+
+1	19483.0474853516	19483.1733703613	19536.8804931641
+2	16373.9967346191	16454.9446105957	16552.1545410156
+4	23561.2144470215	22279.2015075684	22208.5514068604
+8	48312.9005432129	46153.0227661133	46580.1658630371
+16	99944.7479248047	111300.2166748047	109082.4432373047
+
+32
+Not enough memory to allocate thread-local copies of output arrays. Available memory: 33482362880. Required memory: 34561064960. Aborting.
+0.5863619735
+Not enough memory to allocate thread-local copies of output arrays. Available memory: 33482362880. Required memory: 34561064960. Aborting.
+0.5973119987
+Not enough memory to allocate thread-local copies of output arrays. Available memory: 33482362880. Required memory: 34561064960. Aborting.
+0.5356139736
+64
+Not enough memory to allocate thread-local copies of output arrays. Available memory: 33482362880. Required memory: 68920803328. Aborting.
+0.7604620187
+Not enough memory to allocate thread-local copies of output arrays. Available memory: 33482362880. Required memory: 68920803328. Aborting.
+0.6550970138
+Not enough memory to allocate thread-local copies of output arrays. Available memory: 33482362880. Required memory: 68920803328. Aborting.
+0.7548870053
+128
+Not enough memory to allocate thread-local copies of output arrays. Available memory: 33482362880. Required memory: 137640280064. Aborting.
+1.2999440078
+Not enough memory to allocate thread-local copies of output arrays. Available memory: 33482362880. Required memory: 137640280064. Aborting.
+1.0766920168
+Not enough memory to allocate thread-local copies of output arrays. Available memory: 33482362880. Required memory: 137640280064. Aborting.
+1.0954330210
