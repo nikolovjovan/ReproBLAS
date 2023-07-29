@@ -8,6 +8,8 @@
 #include <thread>
 #include <vector>
 
+#include "../../../../config.h"
+#include <binned.h>
 #include <reproBLAS.h>
 
 using namespace std;
@@ -45,13 +47,14 @@ default_random_engine *shuffle_engine;
 int *start_indices;
 vector<int> *reduction_map;
 float *partial_sums;
+float_binned **partial_sum_binned;
 pthread_barrier_t barrier;
 bool result_valid;
 
 // Results
 
-float sum_sequential, sum_parallel, sum_sequential_reproducible, sum_parallel_reproducible;
-uint64_t time_sequential, time_parallel, time_sequential_reproducible, time_parallel_reproducible;
+float sum_sequential, sum_parallel, sum_sequential_reproducible, sum_parallel_reproducible, sum_sequential_reproducible_manual, sum_parallel_reproducible_manual;
+uint64_t time_sequential, time_parallel, time_sequential_reproducible, time_parallel_reproducible, time_sequential_reproducible_manual, time_parallel_reproducible_manual;
 
 void print_usage(char program_name[])
 {
@@ -266,6 +269,41 @@ void run_sequential()
             shuffle(elements->begin(), elements->end(), *shuffle_engine);
         }
     }
+}
+
+void run_sequential_reproducible_manual()
+{
+    chrono::steady_clock::time_point start;
+    float sum;
+    float_binned* sum_binned = binned_sballoc(SIDEFAULTFOLD);
+    for (int run_idx = 0; run_idx <= repeat_count; ++run_idx) {
+        if (run_idx == 0) {
+            start = chrono::steady_clock::now();
+        }
+        binned_sbsetzero(SIDEFAULTFOLD, sum_binned);
+        for (int i = 0; i < element_count; ++i) {
+            binned_sbsadd(SIDEFAULTFOLD, (*elements)[i], sum_binned);
+        }
+        sum = binned_ssbconv(SIDEFAULTFOLD, sum_binned);
+        if (run_idx == 0) {
+            sum_sequential_reproducible_manual = sum;
+            time_sequential_reproducible_manual = chrono::duration_cast<chrono::microseconds>(chrono::steady_clock::now() - start).count();
+            if (perf_test) {
+                cout << fixed << setprecision(10) << (float) time_sequential_reproducible_manual / 1000.0 << '\t'; // ms
+            } else {
+                cout << "Sequential sum: " << fixed << setprecision(10) << sum_sequential_reproducible_manual << " (" << scientific
+                    << setprecision(10) << sum_sequential_reproducible_manual << ')' << endl;
+            }
+        } else if (sum != sum_sequential_reproducible_manual) {
+            cout << "Sequential sum not reproducible after " << run_idx << " runs!" << endl;
+            break;
+        }
+        if (run_idx < repeat_count) {
+            // Shuffle element vector to incur variability
+            shuffle(elements->begin(), elements->end(), *shuffle_engine);
+        }
+    }
+    free(sum_binned);
 }
 
 void run_sequential_reproducible()
@@ -499,6 +537,176 @@ void run_parallel()
     delete[] threads;
 }
 
+void *kernel_sum_reproducible_manual(void *data)
+{
+    int id = *((int *) data);
+    chrono::steady_clock::time_point start;
+    for (int repeat_counter = 0; repeat_counter <= repeat_count; ++repeat_counter) {
+        if (id == 0) {
+            // Generate start indices
+            generate_start_indices();
+            if (repeat_counter == 0) {
+                start = chrono::steady_clock::now();
+            }
+        }
+
+        // Synchronize on barrier to get start index
+        pthread_barrier_wait(&barrier);
+
+        binned_sbsetzero(SIDEFAULTFOLD, partial_sum_binned[id]);
+        int end = id < thread_count - 1 ? start_indices[id + 1] : element_count;
+        for (int i = start_indices[id]; i < end; ++i) {
+            binned_sbsadd(SIDEFAULTFOLD, (*elements)[i], partial_sum_binned[id]);
+        }
+
+        // Wait on barrier to synchronize all threads to start parallel reduction
+        pthread_barrier_wait(&barrier);
+
+        // Reduce partial sums
+        int pow2_count = 1, step_count = 0;
+        while (pow2_count < thread_count) {
+            pow2_count <<= 1;
+            step_count++;
+        }
+        pow2_count >>= 1;
+        if (step_count > 0) {
+            // First reduction step is not based on power of two reduction since thread_count may not be a power of
+            // two...
+            if (id < thread_count - pow2_count) {
+                binned_sbsbadd(SIDEFAULTFOLD, partial_sum_binned[(*reduction_map)[id + pow2_count]], partial_sum_binned[(*reduction_map)[id]]);
+            }
+            // Wait on barrier to synchronize all threads for next reduction step
+            pthread_barrier_wait(&barrier);
+            // The rest of the steps are simple power of two reduction. There are now pow2_count partial sums to
+            // reduce...
+            for (int i = 1; i < step_count; ++i) {
+                pow2_count >>= 1;
+                if (id < pow2_count) {
+                    binned_sbsbadd(SIDEFAULTFOLD, partial_sum_binned[(*reduction_map)[id + pow2_count]], partial_sum_binned[(*reduction_map)[id]]);
+                }
+                // Wait on barrier to synchronize all threads for next reduction step
+                pthread_barrier_wait(&barrier);
+            }
+        }
+
+        // Check results
+        if (id == 0) {
+            if (repeat_counter == 0) {
+                time_parallel_reproducible_manual =
+                    chrono::duration_cast<chrono::microseconds>(chrono::steady_clock::now() - start).count();
+                sum_parallel_reproducible_manual = binned_ssbconv(SIDEFAULTFOLD, partial_sum_binned[(*reduction_map)[id]]);
+                result_valid = true;
+                if (perf_test) {
+                    cout << fixed << setprecision(10) << (float) time_parallel_reproducible_manual / 1000.0 << '\t'; // ms
+                } else {
+                    cout << "Parallel sum (reproducible): " << fixed << setprecision(10) << sum_parallel_reproducible_manual
+                        << " (" << scientific << setprecision(10) << sum_parallel_reproducible_manual << ')' << endl;
+                }
+            } else if (binned_ssbconv(SIDEFAULTFOLD, partial_sum_binned[(*reduction_map)[id]]) != sum_parallel_reproducible_manual) {
+                cout << "Parallel sum (reproducible) not reproducible after " << repeat_counter << " runs!" << endl;
+                result_valid = false;
+            }
+            if (repeat_counter < repeat_count && result_valid) {
+                // Shuffle element vector to incur variability
+                shuffle(elements->begin(), elements->end(), *shuffle_engine);
+                // Shuffle reduction map to incur additional variability
+                shuffle(reduction_map->begin(), reduction_map->end(), *shuffle_engine);
+            }
+        }
+
+        // Wait on barrier to synchronize all threads for next repetition
+        pthread_barrier_wait(&barrier);
+        if (!result_valid)
+            break;
+    }
+    pthread_exit(NULL);
+}
+
+void run_parallel_reproducible_manual()
+{
+    // Get number of available processors
+    const int processor_count = thread::hardware_concurrency();
+    // cout << "Processor count: " << processor_count << endl;
+
+    // Initialize POSIX threads
+    pthread_t *threads = new pthread_t[thread_count];
+    pthread_attr_t attr;
+    int *thread_ids = new int[thread_count];
+
+    start_indices = new int[thread_count];
+    reduction_map = new vector<int>(thread_count);
+    partial_sum_binned = (float_binned**) malloc(thread_count * sizeof(float_binned*));
+
+    for (int i = 0; i < thread_count; ++i) {
+        partial_sum_binned[i] = binned_sballoc(SIDEFAULTFOLD);        
+    }
+
+    int err;
+
+    // Create thread attribute object (in case this code is used with compilers other than G++)
+    err = pthread_attr_init(&attr);
+    if (err) {
+        fprintf(stderr, "Error - pthread_attr_init() return code: %d\n", err);
+        exit(EXIT_FAILURE);
+    }
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+
+    // Create thread barrier
+    err = pthread_barrier_init(&barrier, NULL, thread_count);
+    if (err) {
+        fprintf(stderr, "Error - pthread_barrier_init() return code: %d\n", err);
+        exit(EXIT_FAILURE);
+    }
+
+    // Create threads with affinity
+    cpu_set_t cpus;
+    for (int i = 0; i < thread_count; ++i) {
+        thread_ids[i] = i;       // Generate thread ids for easy work sharing
+        (*reduction_map)[i] = i; // Generate initial reduction map for each thread id (same as thread id)
+        CPU_ZERO(&cpus);
+        CPU_SET(i % processor_count, &cpus);
+        pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
+        err = pthread_create(&(threads[i]), &attr, kernel_sum_reproducible_manual, &(thread_ids[i]));
+        if (err) {
+            fprintf(stderr, "Error - pthread_create() return code: %d\n", err);
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    // Wait for other threads to complete
+    for (int i = 0; i < thread_count; ++i) {
+        err = pthread_join(threads[i], NULL);
+        if (err) {
+            fprintf(stderr, "Error - pthread_join() return code: %d\n", err);
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    // Cleanup
+    err = pthread_barrier_destroy(&barrier);
+    if (err) {
+        fprintf(stderr, "Error - pthread_barrier_destroy() return code: %d\n", err);
+        exit(EXIT_FAILURE);
+    }
+
+    err = pthread_attr_destroy(&attr);
+    if (err) {
+        fprintf(stderr, "Error - pthread_attr_destroy() return code: %d\n", err);
+        exit(EXIT_FAILURE);
+    }
+
+    for (int i = 0; i < thread_count; ++i) {
+        free(partial_sum_binned[i]);
+    }
+
+    free(partial_sum_binned);
+
+    delete reduction_map;
+    delete[] start_indices;
+    delete[] thread_ids;
+    delete[] threads;
+}
+
 void *kernel_sum_reproducible(void *data)
 {
     int id = *((int *) data);
@@ -671,6 +879,19 @@ int main(int argc, char *argv[])
             }
 
             generate_elements();
+
+            cout << "manual implementation\n\n";
+
+            for (int run = 0; run < 3; ++run) run_sequential_reproducible_manual();
+            cout << '\n';
+
+            for (thread_count = 1; thread_count <= 128; thread_count <<= 1)
+            {
+                for (int run = 0; run < 3; ++run) run_parallel_reproducible_manual();
+                cout << '\n';
+            }
+
+            cout << "\noptimized ReproBLAS implementation\n\n";
 
             for (int run = 0; run < 3; ++run) run_sequential_reproducible();
             cout << '\n';
