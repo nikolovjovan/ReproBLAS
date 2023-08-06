@@ -75,6 +75,7 @@
 
 int cluster(bool parallel,                  /* use parallel or sequential implementation */
             bool reproducible,              /* use reproducible implementation */
+            bool manual,                    /* use manual implementation using binned types */
             int numObjects,                 /* number of input objects */
             int numAttributes,              /* size of attribute of each object */
             float **attributes,             /* [numObjects][numAttributes] */
@@ -89,9 +90,9 @@ int cluster(bool parallel,                  /* use parallel or sequential implem
     srand(7);
 
     if (parallel) {
-        tmp_cluster_centres = kmeans_clustering_omp(reproducible, attributes, numAttributes, numObjects, nclusters, threshold, membership);
+        tmp_cluster_centres = kmeans_clustering_omp(reproducible, manual, attributes, numAttributes, numObjects, nclusters, threshold, membership);
     } else {
-        tmp_cluster_centres = kmeans_clustering_seq(reproducible, attributes, numAttributes, numObjects, nclusters, threshold, membership);
+        tmp_cluster_centres = kmeans_clustering_seq(reproducible, manual, attributes, numAttributes, numObjects, nclusters, threshold, membership);
     }
 
     if (*cluster_centres) {

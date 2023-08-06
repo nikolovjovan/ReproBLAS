@@ -69,6 +69,7 @@
 
 #include "../../../../config.h"
 #include <binned.h>
+#include <reproBLAS.h>
 
 #define RANDOM_MAX 2147483647
 
@@ -109,7 +110,7 @@ __inline float euclid_dist_2(float *pt1, float *pt2, int numdims)
     return (ans);
 }
 
-float **kmeans_clustering_seq(bool reproducible,
+float **kmeans_clustering_seq(bool reproducible, bool manual,
                               float **feature, /* in: [npoints][nfeatures] */
                               int nfeatures, int npoints, int nclusters, float threshold,
                               int *membership) /* out: [npoints] */
@@ -117,9 +118,12 @@ float **kmeans_clustering_seq(bool reproducible,
     int i, j, n = 0, index, loop = 0;
     int *new_centers_len; /* [nclusters]: no. of points in each cluster */
     float **new_centers; /* [nclusters][nfeatures] */
-    float_binned ***new_centers_binned; /* [nclusters][nfeatures] */
     float **clusters;    /* out: [nclusters][nfeatures] */
     float delta;
+
+    float_binned ***new_centers_binned; /* [nclusters][nfeatures] */
+    float *new_features;   // array of feature f of points nearest to current cluster
+                           // used to sum all features of points belonging to a cluster at once
 
     /* allocate space for returning variable clusters[] */
     clusters = (float **) malloc(nclusters * sizeof(float *));
@@ -141,7 +145,7 @@ float **kmeans_clustering_seq(bool reproducible,
     /* need to initialize new_centers_len and new_centers[0] to all 0 */
     new_centers_len = (int *) calloc(nclusters, sizeof(int));
 
-    if (reproducible) {
+    if (reproducible && manual) {
         new_centers_binned = (float_binned ***) malloc(nclusters * sizeof(float_binned **));
         new_centers_binned[0] = (float_binned **) malloc(nclusters * nfeatures * sizeof(float_binned *));
         for (i = 1; i < nclusters; i++)
@@ -156,13 +160,18 @@ float **kmeans_clustering_seq(bool reproducible,
         new_centers[0] = (float *) calloc(nclusters * nfeatures, sizeof(float));
         for (i = 1; i < nclusters; i++)
             new_centers[i] = new_centers[i - 1] + nfeatures;
+
+		if (reproducible) {
+            /* allocate space for temporary feature array */
+            new_features = (float *) malloc(npoints * sizeof(float));
+        }
     }
 
     do {
         delta = 0.0;
 
         for (i = 0; i < npoints; i++) {
-            /* find the index of nestest cluster centers */
+            /* find the index of nearest cluster centers */
             index = find_nearest_point(feature[i], nfeatures, clusters, nclusters);
             /* if membership changes, increase delta by 1 */
             if (membership[i] != index)
@@ -170,23 +179,40 @@ float **kmeans_clustering_seq(bool reproducible,
 
             /* assign the membership to object i */
             membership[i] = index;
-
-            /* update new cluster centers : sum of objects located within */
             new_centers_len[index]++;
-            for (j = 0; j < nfeatures; j++)
-                if (reproducible)
-                    binned_sbsadd(SIDEFAULTFOLD, feature[i][j], new_centers_binned[index][j]);
-                else
-                    new_centers[index][j] += feature[i][j];
+
+			if (!reproducible || manual) {
+		        /* update new cluster centers : sum of objects located within */
+	            for (j = 0; j < nfeatures; j++)
+	                if (reproducible)
+	                    binned_sbsadd(SIDEFAULTFOLD, feature[i][j], new_centers_binned[index][j]);
+	                else
+	                    new_centers[index][j] += feature[i][j];
+        	}
+        }
+
+        if (reproducible && !manual) {
+            for (index = 0; index < nclusters; index++) {
+                /* update new cluster centers : sum of objects located within */
+                for (j = 0; j < nfeatures; j++) {
+                    n = 0; // number of features in current new_features array (goes to new_centers_len[index])
+                    for (i = 0; i < npoints; i++) {
+                        if (membership[i] == index) { // point i belongs to cluster index
+                            new_features[n++] = feature[i][j];
+                        }
+                    }
+                    new_centers[index][j] = reproBLAS_ssum(new_centers_len[index], new_features, 1);
+                }
+            }
         }
 
         /* replace old cluster centers with new_centers */
         for (i = 0; i < nclusters; i++) {
             for (j = 0; j < nfeatures; j++) {
-                if (reproducible) {
+                if (reproducible && manual) {
                     if (new_centers_len[i] > 0)
                         clusters[i][j] = binned_ssbconv(SIDEFAULTFOLD, new_centers_binned[i][j]) / new_centers_len[i];
-                        binned_sbsetzero(SIDEFAULTFOLD, new_centers_binned[i][j]); /* set back to 0 */
+                    binned_sbsetzero(SIDEFAULTFOLD, new_centers_binned[i][j]); /* set back to 0 */
                 } else {
                     if (new_centers_len[i] > 0)
                         clusters[i][j] = new_centers[i][j] / new_centers_len[i];
@@ -197,37 +223,45 @@ float **kmeans_clustering_seq(bool reproducible,
         }
     } while (delta > threshold);
 
-    if (reproducible) {
+    if (reproducible && manual) {
         for (i = 0; i < nclusters; ++i)
             for (j = 0; j < nfeatures; ++j)
                 free(new_centers_binned[i][j]);
         free(new_centers_binned[0]);
         free(new_centers_binned);
     } else {
+        if (reproducible) {
+            free(new_features);
+        }
+
         free(new_centers[0]);
         free(new_centers);
     }
+
     free(new_centers_len);
 
     return clusters;
 }
 
-float **kmeans_clustering_omp(bool reproducible,
+float **kmeans_clustering_omp(bool reproducible, bool manual,
                               float **feature, /* in: [npoints][nfeatures] */
                               int nfeatures, int npoints, int nclusters, float threshold,
                               int *membership) /* out: [npoints] */
 {
-    int i, j, k, n = 0, index, loop = 0;
+    int i, j, k, l, n = 0, index, loop = 0;
     int *new_centers_len; /* [nclusters]: no. of points in each cluster */
     float **new_centers; /* [nclusters][nfeatures] */
-    float_binned ***new_centers_binned; /* [nclusters][nfeatures] */
     float **clusters;    /* out: [nclusters][nfeatures] */
     float delta;
 
     int nthreads = omp_get_max_threads();
     int **partial_new_centers_len;
     float ***partial_new_centers;
+
+    float_binned ***new_centers_binned; /* [nclusters][nfeatures] */
     float_binned ****partial_new_centers_binned;
+    float **new_features;  // array of feature f of points nearest to current cluster
+                           // used to sum all features of points belonging to a cluster at once
 
     /* allocate space for returning variable clusters[] */
     clusters = (float **) malloc(nclusters * sizeof(float *));
@@ -249,7 +283,7 @@ float **kmeans_clustering_omp(bool reproducible,
     /* need to initialize new_centers_len and new_centers[0] to all 0 */
     new_centers_len = (int *) calloc(nclusters, sizeof(int));
 
-    if (reproducible) {
+    if (reproducible && manual) {
         new_centers_binned = (float_binned ***) malloc(nclusters * sizeof(float_binned **));
         new_centers_binned[0] = (float_binned **) malloc(nclusters * nfeatures * sizeof(float_binned *));
         for (i = 1; i < nclusters; i++)
@@ -271,7 +305,7 @@ float **kmeans_clustering_omp(bool reproducible,
     for (i = 1; i < nthreads; ++i)
         partial_new_centers_len[i] = partial_new_centers_len[i - 1] + nclusters;
 
-    if (reproducible) {
+    if (reproducible && manual) {
         partial_new_centers_binned = (float_binned ****) malloc(nthreads * sizeof(float_binned ***));
         partial_new_centers_binned[0] = (float_binned ***) malloc(nthreads * nclusters * sizeof(float_binned **));
         for (i = 1; i < nthreads; i++)
@@ -294,24 +328,32 @@ float **kmeans_clustering_omp(bool reproducible,
         for (i = 0; i < nthreads; ++i)
             for (j = 0; j < nclusters; ++j)
                 partial_new_centers[i][j] = (float *) calloc(nfeatures, sizeof(float));
+
+        if (reproducible) {
+            /* allocate space for temporary feature array */
+            new_features = (float **) malloc(nthreads * sizeof(float *));
+            new_features[0] = (float *) malloc(nthreads * npoints * sizeof(float));
+            for (i = 1; i < nthreads; ++i)
+                new_features[i] = new_features[i - 1] + npoints;
+        }
     }
 
     do {
         delta = 0.0;
 
 #pragma omp parallel \
-        shared(feature, clusters, membership, partial_new_centers, partial_new_centers_len)
+        private(i, j, k, l, n, index) \
+        firstprivate(npoints, nclusters, nfeatures) \
+        shared(feature, clusters, membership, partial_new_centers, partial_new_centers_len, new_features)
 {
         int tid = omp_get_thread_num();
 
 #pragma omp for \
-        private(i, j, index) \
-        firstprivate(npoints, nclusters, nfeatures) \
         schedule(static) \
         reduction(+:delta)
 
         for (i = 0; i < npoints; i++) {
-            /* find the index of nestest cluster centers */
+            /* find the index of nearest cluster centers */
             index = find_nearest_point(feature[i], nfeatures, clusters, nclusters);
             /* if membership changes, increase delta by 1 */
             if (membership[i] != index)
@@ -319,54 +361,89 @@ float **kmeans_clustering_omp(bool reproducible,
 
             /* assign the membership to object i */
             membership[i] = index;
-
-            /* update new cluster centers : sum of objects located within */
             partial_new_centers_len[tid][index]++;
-            for (j = 0; j < nfeatures; j++)
-                if (reproducible)
-                    binned_sbsadd(SIDEFAULTFOLD, feature[i][j], partial_new_centers_binned[tid][index][j]);
-                else
-                    partial_new_centers[tid][index][j] += feature[i][j];
+
+            if (!reproducible || manual) {
+                /* update new cluster centers : sum of objects located within */
+                for (j = 0; j < nfeatures; j++)
+                    if (reproducible)
+                        binned_sbsadd(SIDEFAULTFOLD, feature[i][j], partial_new_centers_binned[tid][index][j]);
+                    else
+                        partial_new_centers[tid][index][j] += feature[i][j];
+            }
+        }
+
+        if (reproducible && !manual) {
+
+#pragma omp for \
+        schedule(static)
+
+            /* reduce partial_new_centers_len */
+            for (index = 0; index < nclusters; index++) {
+                for (i = 0; i < nthreads; i++) {
+                    new_centers_len[index] += partial_new_centers_len[i][index];
+                    partial_new_centers_len[i][index] = 0;
+                }
+            }
+
+            /* improve paralelization below since thread number > nclusters in the provided example */
+            n = nclusters * nfeatures;
+
+#pragma omp for \
+        schedule(static)
+
+            for (k = 0; k < n; k++) {
+                index = k / nfeatures;
+                j = k % nfeatures;
+                l = 0; // number of points/features in current new_features array
+                for (i = 0; i < npoints && l < new_centers_len[index]; i++) {
+                    if (membership[i] == index) {
+                        new_features[tid][l++] = feature[i][j];
+                    }
+                }
+                new_centers[index][j] = reproBLAS_ssum(new_centers_len[index], new_features[tid], 1);
+            }
         }
 } /* end of #pragma omp parallel */
 
-        /* let the main thread perform the array reduction */
-        for (i = 0; i < nclusters; i++) {
-            for (j = 0; j < nthreads; j++) {
-                new_centers_len[i] += partial_new_centers_len[j][i];
-                partial_new_centers_len[j][i] = 0.0;
-                if (reproducible)
-                    for (k=0; k<nfeatures; k++) {
-                        binned_sbsbadd(SIDEFAULTFOLD, partial_new_centers_binned[j][i][k], new_centers_binned[i][k]);
-                        binned_sbsetzero(SIDEFAULTFOLD, partial_new_centers_binned[j][i][k]);
-                    }
-                else
-                    for (k=0; k<nfeatures; k++) {
-                        new_centers[i][k] += partial_new_centers[j][i][k];
-                        partial_new_centers[j][i][k] = 0.0;
-                    }
+        if (!reproducible || manual) {
+            /* let the main thread perform the array reduction */
+            for (index = 0; index < nclusters; index++) {
+                for (i = 0; i < nthreads; i++) {
+                    new_centers_len[index] += partial_new_centers_len[i][index];
+                    partial_new_centers_len[i][index] = 0.0;
+                    if (reproducible)
+                        for (j = 0; j < nfeatures; j++) {
+                            binned_sbsbadd(SIDEFAULTFOLD, partial_new_centers_binned[i][index][j], new_centers_binned[index][j]);
+                            binned_sbsetzero(SIDEFAULTFOLD, partial_new_centers_binned[i][index][j]);
+                        }
+                    else
+                        for (j = 0; j < nfeatures; j++) {
+	                        new_centers[index][j] += partial_new_centers[i][index][j];
+	                        partial_new_centers[i][index][j] = 0.0;
+                        }
+                }
             }
         }
 
         /* replace old cluster centers with new_centers */
-        for (i = 0; i < nclusters; i++) {
+        for (index = 0; index < nclusters; index++) {
             for (j = 0; j < nfeatures; j++) {
-                if (reproducible) {
-                    if (new_centers_len[i] > 0)
-                        clusters[i][j] = binned_ssbconv(SIDEFAULTFOLD, new_centers_binned[i][j]) / new_centers_len[i];
-                    binned_sbsconv(SIDEFAULTFOLD, 0.0f, new_centers_binned[i][j]); /* set back to 0 */ // maybe there is an other way to set the value of a binned number
+                if (reproducible && manual) {
+                    if (new_centers_len[index] > 0)
+                        clusters[index][j] = binned_ssbconv(SIDEFAULTFOLD, new_centers_binned[index][j]) / new_centers_len[index];
+                    binned_sbsetzero(SIDEFAULTFOLD, new_centers_binned[index][j]); /* set back to 0 */
                 } else {
-                    if (new_centers_len[i] > 0)
-                        clusters[i][j] = new_centers[i][j] / new_centers_len[i];
-                    new_centers[i][j] = 0.0; /* set back to 0 */
+                    if (new_centers_len[index] > 0)
+                        clusters[index][j] = new_centers[index][j] / new_centers_len[index];
+                    new_centers[index][j] = 0.0; /* set back to 0 */
                 }
             }
-            new_centers_len[i] = 0; /* set back to 0 */
+            new_centers_len[index] = 0; /* set back to 0 */
         }
     } while (delta > threshold && loop++ < 500);
 
-
-    if (reproducible) {
+    if (reproducible && manual) {
         for (i = 0; i < nthreads; ++i)
             for (j = 0; j < nclusters; ++j) {
                 for (k = 0; k < nfeatures; ++k)
@@ -376,9 +453,14 @@ float **kmeans_clustering_omp(bool reproducible,
         free(partial_new_centers_binned[0]);
         free(partial_new_centers_binned);
     } else {
+        if (reproducible) {
+            free(new_features[0]);
+            free(new_features);
+        }
+
         for (i = 0; i < nthreads; ++i)
-            for (j = 0; j < nclusters; ++j)
-                free(partial_new_centers[i][j]);
+            for (index = 0; index < nclusters; ++index)
+                free(partial_new_centers[i][index]);
         free(partial_new_centers[0]);
         free(partial_new_centers);
     }
@@ -386,7 +468,7 @@ float **kmeans_clustering_omp(bool reproducible,
     free(partial_new_centers_len[0]);
     free(partial_new_centers_len);
 
-    if (reproducible) {
+    if (reproducible && manual) {
         for (i = 0; i < nclusters; ++i)
             for (j = 0; j < nfeatures; ++j) {
                 free(new_centers_binned[i][j]);
@@ -397,6 +479,7 @@ float **kmeans_clustering_omp(bool reproducible,
         free(new_centers[0]);
         free(new_centers);
     }
+
     free(new_centers_len);
 
     return clusters;

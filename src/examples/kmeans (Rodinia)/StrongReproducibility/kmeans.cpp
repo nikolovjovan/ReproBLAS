@@ -87,14 +87,14 @@ using namespace std;
 
 constexpr char* input_files[] = { "100", "204800.txt", "819200.txt", "kdd_cup" };
 
-void execute(bool parallel, bool reproducible, int numObjects, int numAttributes,
+void execute(bool parallel, bool reproducible, bool manual, int numObjects, int numAttributes,
          float **attributes, int nclusters, float threshold)
 {
     float **cluster_centres = NULL;
     double time = omp_get_wtime();
-        cluster(parallel, reproducible, numObjects, numAttributes, attributes, /* [numObjects][numAttributes] */
-            nclusters, threshold, &cluster_centres);
-            time = omp_get_wtime() - time;
+    cluster(parallel, reproducible, manual, numObjects, numAttributes, attributes, /* [numObjects][numAttributes] */
+        nclusters, threshold, &cluster_centres);
+    time = omp_get_wtime() - time;
     cout << fixed << setprecision(10) << (float) time * 1000.0 << '\t'; // ms
     free(cluster_centres);
 }
@@ -133,7 +133,7 @@ int main(int argc, char **argv)
         strcat(input_file_path, "data/");
         strcat(input_file_path, input_files[file_idx]);
 
-        cout << input_files[file_idx] << "\n";
+        cout << input_files[file_idx] << "\n\n";
 
         /* from the input file, get the numAttributes and numObjects ------------*/
         {
@@ -183,7 +183,7 @@ int main(int argc, char **argv)
 
         cout << "\nseq\t";
 
-        for (int run = 0; run < 3; ++run) execute (false, true, numObjects, numAttributes, attributes, nclusters, threshold);
+        for (int run = 0; run < 3; ++run) execute (false, true, false, numObjects, numAttributes, attributes, nclusters, threshold);
         cout << '\n';
         
         for (int thread_count = 1; thread_count <= 128; thread_count <<= 1)
@@ -197,7 +197,27 @@ int main(int argc, char **argv)
                 cout << omp_get_num_threads() << '\t';
             }
 
-            for (int run = 0; run < 3; ++run) execute (true, true, numObjects, numAttributes, attributes, nclusters, threshold);
+            for (int run = 0; run < 3; ++run) execute (true, true, false, numObjects, numAttributes, attributes, nclusters, threshold);
+            cout << '\n';
+        }
+
+        cout << "\n\nmanual seq\t";
+
+        for (int run = 0; run < 3; ++run) execute (false, true, true, numObjects, numAttributes, attributes, nclusters, threshold);
+        cout << '\n';
+        
+        for (int thread_count = 1; thread_count <= 128; thread_count <<= 1)
+        {
+            omp_set_dynamic(0);                 // Explicitly disable dynamic teams
+            omp_set_num_threads(thread_count);  // Use  thread_count threads for all consecutive parallel regions
+
+            #pragma omp parallel
+            #pragma omp single
+            {
+                cout << omp_get_num_threads() << '\t';
+            }
+
+            for (int run = 0; run < 3; ++run) execute (true, true, true, numObjects, numAttributes, attributes, nclusters, threshold);
             cout << '\n';
         }
 
