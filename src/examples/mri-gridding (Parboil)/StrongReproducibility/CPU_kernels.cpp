@@ -18,6 +18,7 @@
 
 #include "../../../../config.h"
 #include <binned.h>
+#include <reproBLAS.h>
 
 #define max(x, y) ((x < y) ? y : x)
 #define min(x, y) ((x > y) ? y : x)
@@ -276,6 +277,175 @@ void gridding_seq(bool reproducible, unsigned int n, parameters params, Reconstr
         free(gridDataBinnedReal);
         free(gridDataBinnedImag);
     }
+}
+
+void gridding_seq_2step(bool reproducible, unsigned int n, parameters params, ReconstructionSample *sample, float *LUT,
+                        unsigned int sizeLUT, cmplx *gridData, float *sampleDensity)
+{
+    unsigned int NxL, NxH;
+    unsigned int NyL, NyH;
+    unsigned int NzL, NzH;
+
+    int nx;
+    int ny;
+    int nz;
+
+    float w;
+    unsigned int idx;
+    unsigned int idx0;
+
+    unsigned int idxZ;
+    unsigned int idxY;
+
+    float Dx2[100];
+    float Dy2[100];
+    float Dz2[100];
+    float *dx2 = NULL;
+    float *dy2 = NULL;
+    float *dz2 = NULL;
+
+    float dy2dz2;
+    float v;
+
+    unsigned int size_x = params.gridSize[0];
+    unsigned int size_y = params.gridSize[1];
+    unsigned int size_z = params.gridSize[2];
+
+    float cutoff = ((float) (params.kernelWidth)) / 2.0; // cutoff radius
+    float cutoff2 = cutoff * cutoff;                     // square of cutoff radius
+    float _1overCutoff2 = 1 / cutoff2;                   // 1 over square of cutoff radius
+
+    float beta = PI * sqrt(4 * params.kernelWidth * params.kernelWidth / (params.oversample * params.oversample) * (params.oversample - .5) * (params.oversample - .5) - .8);
+
+    unsigned int gridNumElems = size_x * size_y * size_z;
+
+    cmplx_elements *gridDataElements = (cmplx_elements *) calloc(gridNumElems, sizeof(cmplx_elements));
+
+    // First step is a precomputation step which allocates temporary arrays for storing precomputed data before summation.
+    //
+    for (int step = 0; step < 2; ++step)
+    {
+        for (int i = 0; i < n; i++) {
+            ReconstructionSample pt = sample[i];
+
+            float kx = pt.kX;
+            float ky = pt.kY;
+            float kz = pt.kZ;
+
+            NxL = max((kx - cutoff), 0.0);
+            NxH = min((kx + cutoff), size_x - 1.0);
+
+            NyL = max((ky - cutoff), 0.0);
+            NyH = min((ky + cutoff), size_y - 1.0);
+
+            NzL = max((kz - cutoff), 0.0);
+            NzH = min((kz + cutoff), size_z - 1.0);
+
+            if ((pt.real != 0.0 || pt.imag != 0.0) && pt.sdc != 0.0) {
+                for (dz2 = Dz2, nz = NzL; nz <= NzH; ++nz, ++dz2) {
+                    *dz2 = ((kz - nz) * (kz - nz));
+                }
+                for (dx2 = Dx2, nx = NxL; nx <= NxH; ++nx, ++dx2) {
+                    *dx2 = ((kx - nx) * (kx - nx));
+                }
+                for (dy2 = Dy2, ny = NyL; ny <= NyH; ++ny, ++dy2) {
+                    *dy2 = ((ky - ny) * (ky - ny));
+                }
+
+                idxZ = (NzL - 1) * size_x * size_y;
+                for (dz2 = Dz2, nz = NzL; nz <= NzH; ++nz, ++dz2) {
+                    /* linear offset into 3-D matrix to get to zposition */
+                    idxZ += size_x * size_y;
+
+                    idxY = (NyL - 1) * size_x;
+
+                    /* loop over x indexes, but only if curent distance is close enough (distance will increase by adding
+                    * x&y distance) */
+                    if ((*dz2) < cutoff2) {
+                        for (dy2 = Dy2, ny = NyL; ny <= NyH; ++ny, ++dy2) {
+                            /* linear offset IN ADDITION to idxZ to get to Y position */
+                            idxY += size_x;
+
+                            dy2dz2 = (*dz2) + (*dy2);
+
+                            idx0 = idxY + idxZ;
+
+                            /* loop over y indexes, but only if curent distance is close enough (distance will increase by
+                            * adding y distance) */
+                            if (dy2dz2 < cutoff2) {
+                                for (dx2 = Dx2, nx = NxL; nx <= NxH; ++nx, ++dx2) {
+                                    /* value to evaluate kernel at */
+                                    v = dy2dz2 + (*dx2);
+
+                                    if (v < cutoff2) {
+                                        /* linear index of (x,y,z) point */
+                                        idx = nx + idx0;
+
+                                        if (step == 1)
+                                        {
+                                            /* kernel weighting value */
+                                            if (params.useLUT) {
+                                                w = kernel_value_LUT(v, LUT, sizeLUT, _1overCutoff2) * pt.sdc;
+                                            } else {
+                                                w = kernel_value_CPU(beta * sqrt(1.0 - (v * _1overCutoff2))) * pt.sdc;
+                                            }
+
+                                            /* grid data */
+                                            gridDataElements[idx].real_elements[(size_t) sampleDensity[idx]] = (w * pt.real);
+                                            gridDataElements[idx].imag_elements[(size_t) sampleDensity[idx]] = (w * pt.imag);
+                                        }
+
+                                        /* estimate sample density */
+                                        sampleDensity[idx] += 1.0;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (step == 0)
+        {
+            for (idx = 0; idx < gridNumElems; ++idx)
+            {
+                // allocate elements for summation only for points that have samples
+                if (sampleDensity[idx] > 0) {
+                    gridDataElements[idx].real_elements = (float *) malloc((size_t) sampleDensity[idx] * sizeof(float));
+                    gridDataElements[idx].imag_elements = (float *) malloc((size_t) sampleDensity[idx] * sizeof(float));
+                }
+                // reset sample density to keep track of elements below
+                sampleDensity[idx] = 0;
+            }
+        }
+    }
+
+    // compute grid data by summing calculated contributions
+    for (idx = 0; idx < gridNumElems; ++idx)
+    {
+        if (sampleDensity[idx] > 0) {
+            if (reproducible) {
+                gridData[idx].real = reproBLAS_ssum((int) sampleDensity[idx], gridDataElements[idx].real_elements, 1);
+                gridData[idx].imag = reproBLAS_ssum((int) sampleDensity[idx], gridDataElements[idx].imag_elements, 1);
+            } else {
+                gridData[idx].real = 0.0f;
+                gridData[idx].imag = 0.0f;
+
+                for (int i = 0; i < (int) sampleDensity[idx]; ++i) {
+                    gridData[idx].real += gridDataElements[idx].real_elements[i];
+                    gridData[idx].imag += gridDataElements[idx].imag_elements[i];
+                }
+            }
+
+            // cleanup
+            free(gridDataElements[idx].real_elements);
+            free(gridDataElements[idx].imag_elements);
+        }
+    }
+
+    // cleanup
+    free(gridDataElements);
 }
 
 /**
@@ -752,4 +922,226 @@ void gridding_omp_locks(bool reproducible, unsigned int n, parameters params, Re
         omp_destroy_lock(&locks[i]);
     }
     free(locks);
+}
+
+void gridding_omp_2step(bool reproducible, unsigned int n, parameters params, ReconstructionSample *sample, float *LUT,
+                        unsigned int sizeLUT, cmplx *gridData, float *sampleDensity)
+{
+    unsigned int numThreads = omp_get_max_threads();
+
+    if (numThreads == 1) {
+        gridding_seq_2step(reproducible, n, params, sample, LUT, sizeLUT, gridData, sampleDensity);
+        return;
+    }
+
+    unsigned int size_x = params.gridSize[0];
+    unsigned int size_y = params.gridSize[1];
+    unsigned int size_z = params.gridSize[2];
+
+    uint32_t gridNumElems = size_x * size_y * size_z;
+
+    struct sysinfo memInfo;
+    sysinfo(&memInfo);
+    uint64_t totalMemSize = memInfo.totalram;
+    uint64_t requiredMemSize = (uint64_t) gridNumElems * (sizeof(cmplx) + sizeof(float) + sizeof(cmplx_elements) + sizeof(unsigned int *) + numThreads * sizeof(unsigned int)) + numThreads * n * 10 * sizeof(double);
+
+    if (requiredMemSize > totalMemSize * MAX_MEM_USAGE_PERCENT) {
+        printf("Not enough memory to allocate thread-local temporary summation arrays. Available memory: %llu. Required memory: %llu. Aborting.\n", totalMemSize, requiredMemSize);
+        return;
+    }
+
+    unsigned int chunkSize = (n + numThreads - 1) / numThreads;
+
+    float cutoff = ((float) (params.kernelWidth)) / 2.0; // cutoff radius
+    float cutoff2 = cutoff * cutoff;                     // square of cutoff radius
+    float _1overCutoff2 = 1 / cutoff2;                   // 1 over square of cutoff radius
+
+    float beta = PI * sqrt(4 * params.kernelWidth * params.kernelWidth / (params.oversample * params.oversample) * (params.oversample - .5) * (params.oversample - .5) - .8);
+
+    cmplx_elements *gridDataElements = (cmplx_elements *) calloc(gridNumElems, sizeof(cmplx_elements));
+    unsigned int **tSampleDensity = (unsigned int **) malloc(gridNumElems * sizeof(unsigned int *));
+    for (unsigned int idx = 0; idx < gridNumElems; ++idx) {
+        tSampleDensity[idx] = (unsigned int *) calloc(numThreads, sizeof(unsigned int));
+    }
+
+#pragma omp parallel default(none) \
+            shared(n, params, sample, LUT, sizeLUT, gridData, sampleDensity, fpe, early_exit, numThreads, chunkSize, size_x, size_y, size_z, gridNumElems, cutoff, cutoff2, _1overCutoff2, beta, gridDataElements, tSampleDensity)
+{
+    unsigned int NxL, NxH;
+    unsigned int NyL, NyH;
+    unsigned int NzL, NzH;
+
+    int nx;
+    int ny;
+    int nz;
+
+    float w;
+    unsigned int idx;
+    unsigned int idx0;
+
+    unsigned int idxZ;
+    unsigned int idxY;
+
+    float Dx2[100];
+    float Dy2[100];
+    float Dz2[100];
+    float *dx2 = NULL;
+    float *dy2 = NULL;
+    float *dz2 = NULL;
+
+    float dy2dz2;
+    float v;
+
+    ReconstructionSample pt;
+
+    unsigned int tid = omp_get_thread_num();;
+    unsigned int start = tid * chunkSize;
+    unsigned int end = start + chunkSize;
+
+    unsigned int sum_prev;
+    unsigned int sum;
+
+    if (end > n) {
+        end = n;
+    }
+
+    // First step is a precomputation step which allocates temporary arrays for storing precomputed data before summation.
+    //
+    for (int step = 0; step < 2; ++step)
+    {
+        for (int i = start; i < end; i++) {
+            pt = sample[i];
+
+            NxL = max((pt.kX - cutoff), 0.0);
+            NxH = min((pt.kX + cutoff), size_x - 1.0);
+
+            NyL = max((pt.kY - cutoff), 0.0);
+            NyH = min((pt.kY + cutoff), size_y - 1.0);
+
+            NzL = max((pt.kZ - cutoff), 0.0);
+            NzH = min((pt.kZ + cutoff), size_z - 1.0);
+
+            if ((pt.real != 0.0 || pt.imag != 0.0) && pt.sdc != 0.0) {
+                for (dz2 = Dz2, nz = NzL; nz <= NzH; ++nz, ++dz2) {
+                    *dz2 = ((pt.kZ - nz) * (pt.kZ - nz));
+                }
+                for (dx2 = Dx2, nx = NxL; nx <= NxH; ++nx, ++dx2) {
+                    *dx2 = ((pt.kX - nx) * (pt.kX - nx));
+                }
+                for (dy2 = Dy2, ny = NyL; ny <= NyH; ++ny, ++dy2) {
+                    *dy2 = ((pt.kY - ny) * (pt.kY - ny));
+                }
+
+                idxZ = (NzL - 1) * size_x * size_y;
+                for (dz2 = Dz2, nz = NzL; nz <= NzH; ++nz, ++dz2) {
+                    /* linear offset into 3-D matrix to get to zposition */
+                    idxZ += size_x * size_y;
+
+                    idxY = (NyL - 1) * size_x;
+
+                    /* loop over x indexes, but only if curent distance is close enough (distance will increase by adding
+                    * x&y distance) */
+                    if ((*dz2) < cutoff2) {
+                        for (dy2 = Dy2, ny = NyL; ny <= NyH; ++ny, ++dy2) {
+                            /* linear offset IN ADDITION to idxZ to get to Y position */
+                            idxY += size_x;
+
+                            dy2dz2 = (*dz2) + (*dy2);
+
+                            idx0 = idxY + idxZ;
+
+                            /* loop over y indexes, but only if curent distance is close enough (distance will increase by
+                            * adding y distance) */
+                            if (dy2dz2 < cutoff2) {
+                                for (dx2 = Dx2, nx = NxL; nx <= NxH; ++nx, ++dx2) {
+                                    /* value to evaluate kernel at */
+                                    v = dy2dz2 + (*dx2);
+
+                                    if (v < cutoff2) {
+                                        /* linear index of (x,y,z) point */
+                                        idx = nx + idx0;
+
+                                        if (step == 1)
+                                        {
+                                            /* kernel weighting value */
+                                            if (params.useLUT) {
+                                                w = kernel_value_LUT(v, LUT, sizeLUT, _1overCutoff2) * pt.sdc;
+                                            } else {
+                                                w = kernel_value_CPU(beta * sqrt(1.0 - (v * _1overCutoff2))) * pt.sdc;
+                                            }
+
+                                            /* grid data */
+                                            gridDataElements[idx].real_elements[tSampleDensity[idx][tid]] = w * pt.real;
+                                            gridDataElements[idx].imag_elements[tSampleDensity[idx][tid]] = w * pt.imag;
+                                        }
+
+                                        /* estimate sample density */
+                                        tSampleDensity[idx][tid]++;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+#pragma omp barrier
+
+        if (step == 0)
+        {
+#pragma omp for
+            for (idx = 0; idx < gridNumElems; ++idx) {
+                sum_prev = 0;
+                sum = 0;
+                for (int tidx = 0; tidx < numThreads; ++tidx) {
+                    sum += tSampleDensity[idx][tidx];
+                    tSampleDensity[idx][tidx] = sum_prev;
+                    sum_prev = sum;
+                }
+
+                /* set sample density now */
+                sampleDensity[idx] = (float) sum;
+
+                // allocate elements for summation only for points that have samples
+                if (sum > 0) {
+                    gridDataElements[idx].real_elements = (float *) malloc(sum * sizeof(float));
+                    gridDataElements[idx].imag_elements = (float *) malloc(sum * sizeof(float));
+                }
+            }
+        }
+        else
+        {
+#pragma omp for
+            for (idx = 0; idx < gridNumElems; ++idx) {
+                if (sampleDensity[idx] > 0) {
+                    if (reproducible) {
+                        gridData[idx].real = reproBLAS_ssum((int) sampleDensity[idx], gridDataElements[idx].real_elements, 1);
+                        gridData[idx].imag = reproBLAS_ssum((int) sampleDensity[idx], gridDataElements[idx].imag_elements, 1);
+                    } else {
+                        gridData[idx].real = 0.0f;
+                        gridData[idx].imag = 0.0f;
+
+                        for (int i = 0; i < (int) sampleDensity[idx]; ++i) {
+
+                            gridData[idx].real += gridDataElements[idx].real_elements[i];
+                            gridData[idx].imag += gridDataElements[idx].imag_elements[i];
+                        }
+                    }
+
+                    // cleanup
+                    free(gridDataElements[idx].real_elements);
+                    free(gridDataElements[idx].imag_elements);
+                }
+            }
+        }
+    }
+}
+
+    // cleanup
+    for (unsigned int idx = 0; idx < gridNumElems; ++idx) {
+        free(tSampleDensity[idx]);
+    }
+    free(tSampleDensity);
+    free(gridDataElements);
 }

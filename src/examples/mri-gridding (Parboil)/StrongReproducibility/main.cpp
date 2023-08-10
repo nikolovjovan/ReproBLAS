@@ -29,6 +29,9 @@ extern int gridding_omp_locks(bool reproducible, unsigned int n, parameters para
 extern int gridding_omp_mem(bool reproducible, unsigned int n, parameters params, ReconstructionSample *sample, float *LUT,
                             unsigned int sizeLUT, cmplx *gridData, float *sampleDensity);
 
+extern int gridding_omp_2step(bool reproducible, unsigned int n, parameters params, ReconstructionSample *sample, float *LUT,
+                              unsigned int sizeLUT, cmplx *gridData, float *sampleDensity);
+
 #include <iostream>
 #include <iomanip>
 
@@ -102,7 +105,7 @@ unsigned int readSampleData(parameters params, FILE *uksdata_f, ReconstructionSa
     return i;
 }
 
-void execute(bool parallel, bool use_reduction, bool reproducible, parameters &params, unsigned int number_of_samples, ReconstructionSample *samples)
+void execute(bool parallel, bool optimized, bool use_reduction, bool reproducible, parameters &params, unsigned int number_of_samples, ReconstructionSample *samples)
 {
     float *LUT;             // use look-up table for faster execution on CPU (intermediate data)
     unsigned int sizeLUT;   // set in the function calculateLUT (intermediate data)
@@ -134,7 +137,9 @@ void execute(bool parallel, bool use_reduction, bool reproducible, parameters &p
 
     start = omp_get_wtime();
     if (parallel) {
-        if (use_reduction) {
+        if (optimized) {
+            gridding_omp_2step(reproducible, number_of_samples, params, samples, LUT, sizeLUT, gridData, sampleDensity);
+        } else if (use_reduction) {
             gridding_omp_mem(reproducible, number_of_samples, params, samples, LUT, sizeLUT, gridData, sampleDensity);
         } else {
             gridding_omp_locks(reproducible, number_of_samples, params, samples, LUT, sizeLUT, gridData, sampleDensity);
@@ -235,9 +240,9 @@ int main(int argc, char *argv[])
         //     cout << '\n';
         // }
         
-        cout << "\nomp_mem\n\n";
+        cout << "\nomp_2step\n\n";
 
-        for (int thread_count = 16; thread_count <= 128; thread_count <<= 1)
+        for (int thread_count = 1; thread_count <= 128; thread_count <<= 1)
         {
             omp_set_dynamic(0);                 // Explicitly disable dynamic teams
             omp_set_num_threads(thread_count);  // Use  thread_count threads for all consecutive parallel regions
@@ -248,7 +253,7 @@ int main(int argc, char *argv[])
                 cout << omp_get_num_threads() << '\t';
             }
 
-            for (int run = 0; run < 3; ++run) execute (true, true, true, params, number_of_samples, samples);
+            for (int run = 0; run < 3; ++run) execute (true, true, true, true, params, number_of_samples, samples);
             cout << '\n';
         }
         
