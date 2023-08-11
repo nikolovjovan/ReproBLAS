@@ -480,7 +480,7 @@ void gridding_omp_mem(bool reproducible, unsigned int n, parameters params, Reco
     }
     
     if (requiredMemSize > totalMemSize * MAX_MEM_USAGE_PERCENT) {
-        printf("Not enough memory to allocate thread-local copies of output arrays. Available memory: %llu. Required memory: %llu. Aborting.\n", totalMemSize, requiredMemSize);
+        printf("Not enough memory to allocate thread-local copies of output arrays. Available memory: %lu. Required memory: %lu. Aborting.\n", totalMemSize, requiredMemSize);
         return;
     }
 
@@ -946,7 +946,7 @@ void gridding_omp_2step(bool reproducible, unsigned int n, parameters params, Re
     uint64_t requiredMemSize = (uint64_t) gridNumElems * (sizeof(cmplx) + sizeof(float) + sizeof(cmplx_elements) + sizeof(unsigned int *) + numThreads * sizeof(unsigned int)) + numThreads * n * 10 * sizeof(double);
 
     if (requiredMemSize > totalMemSize * MAX_MEM_USAGE_PERCENT) {
-        printf("Not enough memory to allocate thread-local temporary summation arrays. Available memory: %llu. Required memory: %llu. Aborting.\n", totalMemSize, requiredMemSize);
+        printf("Not enough memory to allocate thread-local temporary summation arrays. Available memory: %lu. Required memory: %lu. Aborting.\n", totalMemSize, requiredMemSize);
         return;
     }
 
@@ -965,7 +965,7 @@ void gridding_omp_2step(bool reproducible, unsigned int n, parameters params, Re
     }
 
 #pragma omp parallel default(none) \
-            shared(n, params, sample, LUT, sizeLUT, gridData, sampleDensity, fpe, early_exit, numThreads, chunkSize, size_x, size_y, size_z, gridNumElems, cutoff, cutoff2, _1overCutoff2, beta, gridDataElements, tSampleDensity)
+            shared(n, params, sample, LUT, sizeLUT, gridData, sampleDensity, reproducible, numThreads, chunkSize, size_x, size_y, size_z, gridNumElems, cutoff, cutoff2, _1overCutoff2, beta, gridDataElements, tSampleDensity)
 {
     unsigned int NxL, NxH;
     unsigned int NyL, NyH;

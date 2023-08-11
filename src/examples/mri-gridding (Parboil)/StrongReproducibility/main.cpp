@@ -23,6 +23,9 @@ extern void calculate_LUT_omp(float beta, float width, float **LUT, unsigned int
 extern int gridding_seq(bool reproducible, unsigned int n, parameters params, ReconstructionSample *sample, float *LUT,
                         unsigned int sizeLUT, cmplx *gridData, float *sampleDensity);
 
+extern int gridding_seq_2step(bool reproducible, unsigned int n, parameters params, ReconstructionSample *sample, float *LUT,
+                              unsigned int sizeLUT, cmplx *gridData, float *sampleDensity);
+
 extern int gridding_omp_locks(bool reproducible, unsigned int n, parameters params, ReconstructionSample *sample, float *LUT,
                               unsigned int sizeLUT, cmplx *gridData, float *sampleDensity);
 
@@ -145,7 +148,11 @@ void execute(bool parallel, bool optimized, bool use_reduction, bool reproducibl
             gridding_omp_locks(reproducible, number_of_samples, params, samples, LUT, sizeLUT, gridData, sampleDensity);
         }
     } else {
-        gridding_seq(reproducible, number_of_samples, params, samples, LUT, sizeLUT, gridData, sampleDensity);
+        if (optimized) {
+            gridding_seq_2step(reproducible, number_of_samples, params, samples, LUT, sizeLUT, gridData, sampleDensity);
+        } else {
+            gridding_seq(reproducible, number_of_samples, params, samples, LUT, sizeLUT, gridData, sampleDensity);
+        }
     }
     time += omp_get_wtime() - start;
 
@@ -174,90 +181,119 @@ int main(int argc, char *argv[])
 
     cout << "unit: [ms]\n\n";
 
-    cout << "reproducible results only\n\n";
+    // cout << "reproducible results only\n\n";
 
     int nfiles = sizeof(input_files) / sizeof(input_files[0]);
 
-    for (int file_idx = 0; file_idx < nfiles; ++file_idx)
+    for (bool reproducible = false;; reproducible = true)
     {
-        strncpy(uksfile, exe_path, exe_path_len + 1);
-        strcat(uksfile, "data/");
-        strcat(uksfile, input_files[file_idx]);
+        cout << (reproducible ? "" : "non-") << "reproducible results\n\n";
 
-        cout << input_files[file_idx] << "\n";
-
+        for (int file_idx = 0; file_idx < nfiles; ++file_idx)
         {
-            FILE *uksfile_f = nullptr;
-            FILE *uksdata_f = nullptr;
+            strncpy(uksfile, exe_path, exe_path_len + 1);
+            strcat(uksfile, "data/");
+            strcat(uksfile, input_files[file_idx]);
 
-            strcpy(uksdata, uksfile);
-            strcat(uksdata, ".data");
+            cout << input_files[file_idx] << "\n";
 
-            uksfile_f = fopen(uksfile, "r");
-            if (uksfile_f == nullptr) {
-                printf("ERROR: Could not open %s\n", uksfile);
-                exit(1);
-            }
-
-            setParameters(uksfile_f, &params);
-
-            samples = (ReconstructionSample *) malloc(params.numSamples * sizeof(ReconstructionSample)); // Input Data
-
-            if (samples == nullptr) {
-                printf("ERROR: Unable to allocate memory for input data\n");
-                exit(1);
-            }
-
-            uksdata_f = fopen(uksdata, "rb");
-
-            if (uksdata_f == nullptr) {
-                printf("ERROR: Could not open data file\n");
-                exit(1);
-            }
-
-            number_of_samples = readSampleData(params, uksdata_f, samples);
-            fclose(uksdata_f);
-        }
-
-        // cout << "\nseq\t";
-
-        // for (int run = 0; run < 3; ++run) execute (false, false, true, params, number_of_samples, samples);
-
-        // cout << "\n\nomp_locks\n\n";
-
-        // for (int thread_count = 1; thread_count <= 128; thread_count <<= 1)
-        // {
-        //     omp_set_dynamic(0);                 // Explicitly disable dynamic teams
-        //     omp_set_num_threads(thread_count);  // Use  thread_count threads for all consecutive parallel regions
-
-        //     #pragma omp parallel
-        //     #pragma omp single
-        //     {
-        //         cout << omp_get_num_threads() << '\t';
-        //     }
-
-        //     for (int run = 0; run < 3; ++run) execute (true, false, true, params, number_of_samples, samples);
-        //     cout << '\n';
-        // }
-        
-        cout << "\nomp_2step\n\n";
-
-        for (int thread_count = 1; thread_count <= 128; thread_count <<= 1)
-        {
-            omp_set_dynamic(0);                 // Explicitly disable dynamic teams
-            omp_set_num_threads(thread_count);  // Use  thread_count threads for all consecutive parallel regions
-
-            #pragma omp parallel
-            #pragma omp single
             {
-                cout << omp_get_num_threads() << '\t';
+                FILE *uksfile_f = nullptr;
+                FILE *uksdata_f = nullptr;
+
+                strcpy(uksdata, uksfile);
+                strcat(uksdata, ".data");
+
+                uksfile_f = fopen(uksfile, "r");
+                if (uksfile_f == nullptr) {
+                    printf("ERROR: Could not open %s\n", uksfile);
+                    exit(1);
+                }
+
+                setParameters(uksfile_f, &params);
+
+                samples = (ReconstructionSample *) malloc(params.numSamples * sizeof(ReconstructionSample)); // Input Data
+
+                if (samples == nullptr) {
+                    printf("ERROR: Unable to allocate memory for input data\n");
+                    exit(1);
+                }
+
+                uksdata_f = fopen(uksdata, "rb");
+
+                if (uksdata_f == nullptr) {
+                    printf("ERROR: Could not open data file\n");
+                    exit(1);
+                }
+
+                number_of_samples = readSampleData(params, uksdata_f, samples);
+                fclose(uksdata_f);
             }
 
-            for (int run = 0; run < 3; ++run) execute (true, true, true, true, params, number_of_samples, samples);
-            cout << '\n';
+            cout << "\n\nseq\t";
+
+            for (int run = 0; run < 3; ++run) execute (false, false, false, reproducible, params, number_of_samples, samples);
+
+            cout << "\n\nseq_2step\t";
+
+            for (int run = 0; run < 3; ++run) execute (false, true, false, reproducible, params, number_of_samples, samples);
+
+            cout << "\n\nomp_locks\n\n";
+
+            for (int thread_count = 1; thread_count <= 128; thread_count <<= 1)
+            {
+                omp_set_dynamic(0);                 // Explicitly disable dynamic teams
+                omp_set_num_threads(thread_count);  // Use  thread_count threads for all consecutive parallel regions
+
+                #pragma omp parallel
+                #pragma omp single
+                {
+                    cout << omp_get_num_threads() << '\t';
+                }
+
+                for (int run = 0; run < 3; ++run) execute (true, false, false, reproducible, params, number_of_samples, samples);
+                cout << '\n';
+            }
+
+            cout << "\n\nomp_mem\n\n";
+
+            for (int thread_count = 1; thread_count <= 128; thread_count <<= 1)
+            {
+                omp_set_dynamic(0);                 // Explicitly disable dynamic teams
+                omp_set_num_threads(thread_count);  // Use  thread_count threads for all consecutive parallel regions
+
+                #pragma omp parallel
+                #pragma omp single
+                {
+                    cout << omp_get_num_threads() << '\t';
+                }
+
+                for (int run = 0; run < 3; ++run) execute (true, false, true, reproducible, params, number_of_samples, samples);
+                cout << '\n';
+            }
+
+            cout << "\n\nomp_2step\n\n";
+
+            for (int thread_count = 1; thread_count <= 128; thread_count <<= 1)
+            {
+                omp_set_dynamic(0);                 // Explicitly disable dynamic teams
+                omp_set_num_threads(thread_count);  // Use  thread_count threads for all consecutive parallel regions
+
+                #pragma omp parallel
+                #pragma omp single
+                {
+                    cout << omp_get_num_threads() << '\t';
+                }
+
+                for (int run = 0; run < 3; ++run) execute (true, true, false, reproducible, params, number_of_samples, samples);
+                cout << '\n';
+            }
+            
+            free(samples);
         }
-        
-        free(samples);
+
+        if (reproducible)
+            break;
     }
 
     return 0;
